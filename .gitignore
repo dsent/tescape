@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor Directories
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary Files
+temp/
+*.tmp
+*.bak
+*.old
