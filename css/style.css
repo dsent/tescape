@@ -37,7 +37,8 @@ body {
   border-radius: 12px;
   padding: 25px;
   color: #fff;
-  min-width: 220px;
+  min-width: 240px;
+  max-width: 260px;
   backdrop-filter: blur(10px);
 }
 
@@ -52,9 +53,10 @@ body {
 
 .stat {
   margin: 15px 0;
-  padding: 10px;
+  padding: 12px;
   background: rgba(0, 0, 0, 0.3);
-  border-radius: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(78, 204, 163, 0.1);
 }
 
 .stat-label {
@@ -62,36 +64,48 @@ body {
   color: #aaa;
   text-transform: uppercase;
   letter-spacing: 1px;
+  margin-bottom: 5px;
 }
 
 .stat-value {
   font-size: 1.8em;
   font-weight: bold;
   color: #4ecca3;
+  text-shadow: 0 0 10px rgba(78, 204, 163, 0.3);
 }
 
 .controls {
   margin-top: 25px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(233, 69, 96, 0.3);
   font-size: 0.85em;
-  line-height: 1.8;
+  line-height: 2.2;
 }
 
 .controls h3 {
   color: #e94560;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   font-size: 1em;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.controls p {
+  margin: 8px 0;
 }
 
 .key {
   display: inline-block;
   background: #e94560;
   color: #fff;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 4px;
   font-weight: bold;
-  min-width: 28px;
+  min-width: 32px;
   text-align: center;
-  margin-right: 5px;
+  margin-right: 8px;
+  margin-bottom: 4px;
+  font-size: 0.95em;
 }
 
 .overlay {
@@ -230,4 +244,11 @@ body {
   margin-top: 15px;
   font-size: 0.9em;
   color: #888;
+}
+
+.pause-hint .key {
+  background: rgba(233, 69, 96, 0.6);
+  padding: 3px 8px;
+  margin: 0 4px;
+  font-size: 0.9em;
 }

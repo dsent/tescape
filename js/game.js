@@ -1377,9 +1377,11 @@ if (typeof window !== "undefined") {
   }
 
   function drawEscapeZone() {
-    CTX.fillStyle = "rgba(78, 204, 163, 0.1)";
+    // Semi-transparent green background
+    CTX.fillStyle = "rgba(78, 204, 163, 0.15)";
     CTX.fillRect(0, 0, CANVAS.width, game.constants.CELL_SIZE * 2);
 
+    // Green dashed line at bottom of zone
     CTX.strokeStyle = "#4ecca3";
     CTX.lineWidth = 2;
     CTX.setLineDash([10, 5]);
@@ -1389,10 +1391,13 @@ if (typeof window !== "undefined") {
     CTX.stroke();
     CTX.setLineDash([]);
 
+    // "ESCAPE ZONE" text with better positioning
     CTX.fillStyle = "#4ecca3";
-    CTX.font = "bold 14px sans-serif";
+    CTX.font = "bold 16px sans-serif";
     CTX.textAlign = "center";
-    CTX.fillText("▲ ESCAPE ZONE ▲", CANVAS.width / 2, game.constants.CELL_SIZE);
+    CTX.textBaseline = "middle";
+    CTX.fillText("▲ ESCAPE ZONE ▲", CANVAS.width / 2, game.constants.CELL_SIZE - 2);
+    CTX.textBaseline = "alphabetic"; // Reset to default
   }
 
   function drawDangerIndicators() {
@@ -1561,12 +1566,20 @@ if (typeof window !== "undefined") {
     CTX.fillRect(0, 0, CANVAS.width, CANVAS.height);
 
     if (["playing", "paused", "gameover", "win"].includes(game.status)) {
+      // Save context and set up clipping to prevent elements from bleeding outside canvas
+      CTX.save();
+      CTX.beginPath();
+      CTX.rect(0, 0, CANVAS.width, CANVAS.height);
+      CTX.clip();
+
       drawEscapeZone();
       drawDangerIndicators();
       drawGrid();
       drawCurrentPiece();
       drawPlayer();
       drawParticles();
+
+      CTX.restore();
     }
 
     requestAnimationFrame(gameLoop);
