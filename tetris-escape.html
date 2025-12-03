@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tetris Escape</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div class="game-container">
+      <div class="game-wrapper">
+        <canvas id="gameCanvas" width="350" height="700"></canvas>
+
+        <div id="startOverlay" class="overlay">
+          <h1>TETRIS ESCAPE</h1>
+          <p class="subtitle">Escape before you're trapped!</p>
+          <p>Climb, jump, and run through falling Tetris blocks</p>
+          <p>Reach the top to win!</p>
+          <p style="color: #e94560; margin-top: 15px">⚠️ If a line completes with you in it, you die!</p>
+          <p style="color: #f0a000; margin-top: 5px">⚠️ If a block lands on you, you get squished!</p>
+
+          <div class="difficulty-selector">
+            <label>Difficulty:</label>
+            <div class="difficulty-buttons">
+              <button class="diff-btn" data-difficulty="easy">Easy</button>
+              <button class="diff-btn selected" data-difficulty="normal">Normal</button>
+              <button class="diff-btn" data-difficulty="hard">Hard</button>
+            </div>
+          </div>
+
+          <div class="difficulty-selector">
+            <label>Game Speed:</label>
+            <div class="difficulty-buttons">
+              <button class="speed-btn" data-speed="0.5">0.5x</button>
+              <button class="speed-btn" data-speed="0.75">0.75x</button>
+              <button class="speed-btn selected" data-speed="1">1x</button>
+              <button class="speed-btn" data-speed="1.25">1.25x</button>
+              <button class="speed-btn" data-speed="1.5">1.5x</button>
+            </div>
+          </div>
+
+          <button class="btn" id="start-btn">START GAME</button>
+          <p class="pause-hint">
+            Press <span class="key">S</span> to sabotage · <span class="key">P</span>/<span class="key">Esc</span> to
+            pause
+          </p>
+        </div>
+
+        <div id="pauseOverlay" class="overlay hidden">
+          <h1>PAUSED</h1>
+          <p>Game paused</p>
+
+          <div class="difficulty-selector">
+            <label>Difficulty:</label>
+            <div class="difficulty-buttons">
+              <button class="diff-btn pause-diff" data-difficulty="easy">Easy</button>
+              <button class="diff-btn pause-diff selected" data-difficulty="normal">Normal</button>
+              <button class="diff-btn pause-diff" data-difficulty="hard">Hard</button>
+            </div>
+          </div>
+
+          <div class="difficulty-selector">
+            <label>Game Speed:</label>
+            <div class="difficulty-buttons">
+              <button class="speed-btn pause-speed" data-speed="0.5">0.5x</button>
+              <button class="speed-btn pause-speed" data-speed="0.75">0.75x</button>
+              <button class="speed-btn pause-speed selected" data-speed="1">1x</button>
+              <button class="speed-btn pause-speed" data-speed="1.25">1.25x</button>
+              <button class="speed-btn pause-speed" data-speed="1.5">1.5x</button>
+            </div>
+          </div>
+
+          <button class="btn" id="resume-btn">RESUME</button>
+          <button class="btn" style="background: linear-gradient(135deg, #666, #444)" id="restart-btn">RESTART</button>
+        </div>
+
+        <div id="gameOverOverlay" class="overlay hidden">
+          <h1 id="gameOverTitle">GAME OVER</h1>
+          <p id="deathReason" style="color: #e94560"></p>
+          <div class="game-over-stats">
+            <p>Height Reached: <span id="finalHeight">0</span>%</p>
+            <p>Time Survived: <span id="finalTime">0</span>s</p>
+          </div>
+          <button class="btn" id="try-again-btn">TRY AGAIN</button>
+        </div>
+
+        <div id="winOverlay" class="overlay hidden">
+          <h1 class="win-message">YOU ESCAPED!</h1>
+          <div class="game-over-stats">
+            <p>Escape Time: <span id="winTime">0</span>s</p>
+          </div>
+          <button class="btn" id="play-again-btn">PLAY AGAIN</button>
+        </div>
+      </div>
+
+      <div class="info-panel">
+        <h2>Status</h2>
+        <div class="stat">
+          <div class="stat-label">Height</div>
+          <div class="stat-value"><span id="height">0</span>%</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Time</div>
+          <div class="stat-value"><span id="time">0</span>s</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Lines Cleared</div>
+          <div class="stat-value"><span id="lines">0</span></div>
+        </div>
+
+        <div class="controls">
+          <h3>Controls</h3>
+          <p><span class="key">←</span><span class="key">→</span> Move</p>
+          <p><span class="key">↑</span><span class="key">Space</span> Jump</p>
+          <p><span class="key">S</span> Sabotage</p>
+          <p><span class="key">P</span><span class="key">Esc</span> Pause</p>
+        </div>
+
+        <div class="stat" style="margin-top: 20px">
+          <div class="stat-label">Sabotage</div>
+          <div class="stat-value"><span id="sabotage">READY</span></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/game.js"></script>
+  </body>
+</html>
