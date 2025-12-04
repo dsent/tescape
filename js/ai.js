@@ -1,0 +1,439 @@
+window.TE = window.TE || {};
+
+window.TE.AIController = class AIController {
+  constructor(engine) {
+    this.engine = engine;
+    this.reset();
+  }
+
+  reset() {
+    this.moveCount = 0;
+    this.retargetCount = 0;
+    this.target = null;
+    this.path = [];
+    this.state = "targeting";
+    this.erraticDir = 1;
+  }
+
+  checkRotationOcclusion(currentX, currentY, currentShape, nextShape) {
+    const width = Math.max(currentShape[0].length, nextShape[0].length);
+    const height = Math.max(currentShape.length, nextShape.length);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const gridY = currentY + y;
+        const gridX = currentX + x;
+
+        if (gridY >= 0 && gridY < this.engine.constants.ROWS && gridX >= 0 && gridX < this.engine.constants.COLS) {
+          if (this.engine.grid[gridY][gridX] !== null) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  performErraticMove() {
+    const piece = this.engine.currentPiece;
+    if (Math.random() < 0.1) this.erraticDir *= -1;
+
+    if (this.engine.canPlacePiece(piece, this.erraticDir, 0)) {
+      piece.x += this.erraticDir;
+    } else {
+      this.erraticDir *= -1;
+    }
+
+    if (Math.random() < 0.05) {
+      const newRot = (piece.rotation + 1) % window.TE.TETROMINOES[piece.type].shapes.length;
+      const newShape = window.TE.getShape(piece.type, newRot);
+      if (
+        this.engine.canPlacePiece(piece, 0, 0, newShape) &&
+        this.checkRotationOcclusion(piece.x, piece.y, piece.shape, newShape)
+      ) {
+        piece.rotation = newRot;
+        piece.shape = newShape;
+      }
+    }
+  }
+
+  calculateTarget(overrideConfig = null, avoidPlayer = false) {
+    if (!this.engine.currentPiece) {
+      this.target = null;
+      this.path = [];
+      return;
+    }
+
+    let bestScore = -Infinity;
+    let bestState = null;
+    const diffConfig = overrideConfig || this.engine.settings.diffConfig;
+    const shapes = window.TE.TETROMINOES[this.engine.currentPiece.type].shapes;
+
+    // Calculate board urgency (Panic Mode)
+    let currentMaxHeight = 0;
+    for (let y = 0; y < this.engine.constants.ROWS; y++) {
+      if (this.engine.grid[y].some((c) => c !== null)) {
+        currentMaxHeight = this.engine.constants.ROWS - y;
+        break;
+      }
+    }
+
+    // Avoidance parameters
+    let playerGridLeft = -1;
+    let playerGridRight = -1;
+    let avoidancePenalty = diffConfig.dangerZonePenalty !== undefined ? diffConfig.dangerZonePenalty : 10000;
+
+    if (avoidPlayer && this.engine.player) {
+      const margin = diffConfig.dangerZoneMargin;
+      playerGridLeft = Math.floor(this.engine.player.x / this.engine.constants.CELL_SIZE - margin);
+      playerGridRight = Math.ceil(
+        (this.engine.player.x + this.engine.constants.PLAYER_WIDTH) / this.engine.constants.CELL_SIZE + margin
+      );
+
+      // Linearly reduce avoidance penalty as board fills up ("Panic Mode")
+      avoidancePenalty = Math.max(0, avoidancePenalty - currentMaxHeight * (avoidancePenalty / 20));
+    }
+
+    // BFS State: { x, y, rotation }
+    const startState = {
+      x: this.engine.currentPiece.x,
+      y: this.engine.currentPiece.y,
+      rotation: this.engine.currentPiece.rotation,
+    };
+    const startKey = `${startState.x},${startState.y},${startState.rotation}`;
+
+    const queue = [startState];
+    const visited = new Set([startKey]);
+    const parents = new Map(); // key -> { parentKey, action }
+
+    let iterations = 0;
+    const MAX_ITERATIONS = 4000; // Safety limit
+
+    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+      iterations++;
+      const current = queue.shift();
+      const currentKey = `${current.x},${current.y},${current.rotation}`;
+      const shape = shapes[current.rotation];
+
+      // Check if resting spot (cannot move down)
+      const tempPiece = {
+        x: current.x,
+        y: current.y,
+        shape: shape,
+        type: this.engine.currentPiece.type,
+      };
+
+      const canMoveDown = this.engine.canPlacePiece(tempPiece, 0, 1);
+
+      if (!canMoveDown) {
+        // Evaluate resting spot
+        let penalty = 0;
+        if (avoidPlayer) {
+          const width = shape[0].length;
+          const pieceRight = current.x + width;
+          if (current.x < playerGridRight && pieceRight > playerGridLeft) {
+            penalty = avoidancePenalty;
+          }
+        }
+
+        const score = this.evaluatePosition(tempPiece, shape, diffConfig) - penalty;
+        if (score > bestScore) {
+          bestScore = score;
+          bestState = current;
+        }
+      }
+
+      // Generate neighbors
+      const neighbors = [
+        { action: "left", dx: -1, dy: 0, drot: 0 },
+        { action: "right", dx: 1, dy: 0, drot: 0 },
+        { action: "rotate", dx: 0, dy: 0, drot: 1 },
+        { action: "down", dx: 0, dy: 1, drot: 0 },
+      ];
+
+      for (const n of neighbors) {
+        const nextRot = (current.rotation + n.drot) % shapes.length;
+        const nextX = current.x + n.dx;
+        const nextY = current.y + n.dy;
+
+        const nextKey = `${nextX},${nextY},${nextRot}`;
+        if (visited.has(nextKey)) continue;
+
+        const nextShape = shapes[nextRot];
+
+        if (avoidPlayer && (n.action === "left" || n.action === "right" || n.action === "rotate")) {
+          const width = nextShape[0].length;
+          const pieceLeft = nextX;
+          const pieceRight = nextX + width;
+
+          const playerYGrid = Math.floor(this.engine.player.y / this.engine.constants.CELL_SIZE);
+          const pieceBottomGrid = nextY + nextShape.length;
+
+          if (pieceBottomGrid >= playerYGrid - 2) {
+            const nextInDanger = pieceLeft < playerGridRight && pieceRight > playerGridLeft;
+
+            if (nextInDanger) {
+              const curWidth = shape[0].length;
+              const curLeft = current.x;
+              const curRight = current.x + curWidth;
+              const curInDanger = curLeft < playerGridRight && curRight > playerGridLeft;
+
+              if (!curInDanger) {
+                continue;
+              }
+            }
+          }
+        }
+
+        let valid = false;
+        if (n.action === "rotate") {
+          if (
+            this.engine.canPlacePiece(
+              { x: current.x, y: current.y, shape: shape, type: this.engine.currentPiece.type },
+              0,
+              0,
+              nextShape
+            ) &&
+            this.checkRotationOcclusion(current.x, current.y, shape, nextShape)
+          ) {
+            valid = true;
+          }
+        } else {
+          if (
+            this.engine.canPlacePiece(
+              { x: current.x, y: current.y, shape: shape, type: this.engine.currentPiece.type },
+              n.dx,
+              n.dy
+            )
+          ) {
+            valid = true;
+          }
+        }
+
+        if (valid) {
+          visited.add(nextKey);
+          parents.set(nextKey, { parentKey: currentKey, action: n.action });
+          queue.push({ x: nextX, y: nextY, rotation: nextRot });
+        }
+      }
+    }
+
+    this.target = bestState;
+
+    this.path = [];
+    if (bestState) {
+      let currKey = `${bestState.x},${bestState.y},${bestState.rotation}`;
+      this.path.unshift({ x: bestState.x, y: bestState.y, rotation: bestState.rotation });
+
+      while (currKey !== startKey) {
+        const info = parents.get(currKey);
+        if (!info) break;
+        const [px, py, prot] = info.parentKey.split(",").map(Number);
+        this.path.unshift({ x: px, y: py, rotation: prot });
+        currKey = info.parentKey;
+      }
+      if (this.path.length > 0) {
+        this.path.shift();
+      }
+    }
+  }
+
+  evaluatePosition(piece, shape, diffConfig) {
+    let tempGrid = this.engine.grid.map((row) => [...row]);
+
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x]) {
+          const gy = piece.y + y;
+          const gx = piece.x + x;
+          if (gy >= 0 && gy < this.engine.constants.ROWS) tempGrid[gy][gx] = true;
+        }
+      }
+    }
+
+    let score = 0;
+    const diff = diffConfig;
+
+    let completedLines = 0;
+    for (let y = 0; y < this.engine.constants.ROWS; y++) {
+      if (tempGrid[y].every((c) => c)) completedLines++;
+    }
+    score += completedLines * diff.lineReward;
+    if (completedLines > 0 && diff.multiLineBonus) {
+      if (completedLines >= 4) score += 150;
+      else if (completedLines >= 2) score += 50;
+    }
+
+    let gridAfter = tempGrid.filter((row) => !row.every((c) => c));
+    while (gridAfter.length < this.engine.constants.ROWS)
+      gridAfter.unshift(Array(this.engine.constants.COLS).fill(null));
+
+    const heights = [];
+    for (let x = 0; x < this.engine.constants.COLS; x++) {
+      let h = 0;
+      for (let y = 0; y < this.engine.constants.ROWS; y++) {
+        if (gridAfter[y][x]) {
+          h = this.engine.constants.ROWS - y;
+          break;
+        }
+      }
+      heights.push(h);
+    }
+
+    let holes = 0,
+      coveredHoles = 0;
+    for (let x = 0; x < this.engine.constants.COLS; x++) {
+      let blockFound = false;
+      let blocksAbove = 0;
+      for (let y = 0; y < this.engine.constants.ROWS; y++) {
+        if (gridAfter[y][x]) {
+          blockFound = true;
+          blocksAbove++;
+        } else if (blockFound) {
+          holes++;
+          coveredHoles += blocksAbove;
+        }
+      }
+    }
+
+    let bumpiness = 0;
+    for (let x = 0; x < this.engine.constants.COLS - 1; x++) bumpiness += Math.abs(heights[x] - heights[x + 1]);
+
+    let wells = 0;
+    for (let x = 0; x < this.engine.constants.COLS; x++) {
+      const lh = x > 0 ? heights[x - 1] : 99;
+      const rh = x < this.engine.constants.COLS - 1 ? heights[x + 1] : 99;
+      const depth = Math.min(lh, rh) - heights[x];
+      if (depth > 2) {
+        wells += (depth - 2) * (depth - 2);
+        if (depth >= 4) {
+          wells += 500 + (depth - 4) * 100;
+        }
+      }
+    }
+
+    let cliffs = 0;
+    for (let x = 0; x < this.engine.constants.COLS - 1; x++) {
+      const d = Math.abs(heights[x] - heights[x + 1]);
+      if (d > 2) {
+        cliffs += d - 2;
+        if (d >= 4) {
+          cliffs += 500 + (d - 4) * 100;
+        }
+      }
+    }
+
+    score -= holes * diff.holePenalty;
+    score -= coveredHoles * diff.coveredHolePenalty;
+    score -= heights.reduce((a, b) => a + b, 0) * diff.heightPenalty;
+    score -= Math.max(...heights) * diff.maxHeightPenalty;
+
+    const maxBoardHeight = Math.max(...heights);
+    if (maxBoardHeight >= this.engine.constants.ROWS - 2) {
+      score -= 100000;
+    } else if (maxBoardHeight >= this.engine.constants.ROWS - 4) {
+      score -= 20000;
+    }
+
+    score -= bumpiness * diff.bumpinessPenalty;
+    score -= wells * diff.wellPenalty;
+    score -= cliffs * diff.cliffPenalty;
+
+    const minEdge = Math.min(heights[0], heights[this.engine.constants.COLS - 1]);
+    score += (10 - minEdge) * 3;
+
+    const pieceBottom = piece.y + piece.shape.length;
+    if (pieceBottom < 4) score -= (4 - pieceBottom) * 30;
+
+    return score;
+  }
+
+  update() {
+    if (!this.engine.currentPiece) return;
+    this.moveCount++;
+
+    if (this.engine.timers.sabotage > 0 && this.state === "erratic") {
+      this.performErraticMove();
+      if (this.engine.getDropDistance() < 6) {
+        this.state = "targeting";
+      }
+      return;
+    }
+
+    if (this.path && this.path.length > 0) {
+      const piece = this.engine.currentPiece;
+
+      let canFastDrop = true;
+      for (const step of this.path) {
+        if (step.x !== piece.x || step.rotation !== piece.rotation) {
+          canFastDrop = false;
+          break;
+        }
+      }
+
+      if (canFastDrop && this.moveCount >= this.engine.settings.diffConfig.minMovesBeforeFastDrop) {
+        if (piece.fallStepCount >= this.engine.settings.diffConfig.spawnDropDelay) {
+          const lastState = this.path[this.path.length - 1];
+          let dropDist = 0;
+          let testY = piece.y;
+          const testPiece = { ...piece };
+          while (this.engine.canPlacePiece(testPiece, 0, 1)) {
+            testPiece.y++;
+            dropDist++;
+          }
+
+          if (dropDist >= this.engine.settings.diffConfig.minFastDropHeight && !this.engine.isPlayerInDangerZone()) {
+            piece.y = testPiece.y;
+            this.path = [];
+            return;
+          }
+        }
+      }
+
+      const nextState = this.path[0];
+
+      if (piece.y > nextState.y) {
+        this.calculateTarget(null, this.engine.isPlayerInDangerZone());
+        return;
+      }
+
+      if (piece.y < nextState.y) {
+        return;
+      }
+
+      let success = false;
+
+      if (piece.rotation !== nextState.rotation) {
+        const newRot = nextState.rotation;
+        const newShape = window.TE.getShape(piece.type, newRot);
+        if (this.engine.canPlacePiece(piece, 0, 0, newShape)) {
+          piece.rotation = newRot;
+          piece.shape = newShape;
+          success = true;
+        }
+      } else if (piece.x !== nextState.x) {
+        const dx = nextState.x - piece.x;
+        if (Math.abs(dx) === 1) {
+          if (this.engine.canPlacePiece(piece, dx, 0)) {
+            piece.x += dx;
+            success = true;
+          }
+        } else {
+          const stepX = Math.sign(dx);
+          if (this.engine.canPlacePiece(piece, stepX, 0)) {
+            piece.x += stepX;
+            success = true;
+          }
+        }
+      } else {
+        success = true;
+      }
+
+      if (success) {
+        this.path.shift();
+      } else {
+        this.calculateTarget(null, this.engine.isPlayerInDangerZone());
+      }
+    }
+  }
+};

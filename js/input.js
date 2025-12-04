@@ -1,0 +1,39 @@
+window.TE = window.TE || {};
+
+window.TE.InputHandler = class InputHandler {
+  constructor() {
+    this.keys = {};
+    this.onPause = () => {};
+    this.onSabotage = () => {};
+
+    window.addEventListener("keydown", (e) => this.handleKeyDown(e));
+    window.addEventListener("keyup", (e) => this.handleKeyUp(e));
+    window.addEventListener("blur", () => this.handleBlur());
+  }
+
+  handleKeyDown(e) {
+    this.keys[e.code] = true;
+    // Prevent scrolling for game keys
+    if (["ArrowUp", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
+
+    // Toggle Pause
+    if (e.code === "KeyP" || e.code === "Escape") {
+      e.preventDefault();
+      this.onPause();
+    }
+
+    // Trigger Sabotage
+    if (e.code === "KeyS") {
+      e.preventDefault();
+      this.onSabotage();
+    }
+  }
+
+  handleKeyUp(e) {
+    this.keys[e.code] = false;
+  }
+
+  handleBlur() {
+    this.keys = {};
+  }
+};
