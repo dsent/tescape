@@ -15,7 +15,6 @@ const DEFAULT_CONSTANTS = {
   JUMP_FORCE: -13.5,
   MOVE_SPEED: 4,
   TERMINAL_VELOCITY: 15,
-  DROP_INTERVAL: 800,
   SPAWN_DELAY: 0.3, // seconds
   LINE_HISTORY_WINDOW: 10,
 };
@@ -148,6 +147,7 @@ const DIFFICULTY_SETTINGS = {
     cliffPenalty: 50,
     minFastDropHeight: 6,
     dangerZoneMargin: 1.5,
+    dangerZonePenalty: 10000,
     aiMoveInterval: 300,
     spawnDropDelay: 3,
     maxRetargets: -1,
@@ -155,6 +155,8 @@ const DIFFICULTY_SETTINGS = {
     minMovesBeforeFastDrop: 4,
     sabotageDuration: 1.5,
     sabotageCooldown: 3.0,
+    baseFallTick: 800,
+    lineClearDelay: 800,
   },
   normal: {
     // Line clearing: slight preference to clear, but not aggressive
@@ -173,13 +175,16 @@ const DIFFICULTY_SETTINGS = {
     cliffPenalty: 30,
     minFastDropHeight: 4,
     dangerZoneMargin: 1.0,
-    aiMoveInterval: 150,
+    dangerZonePenalty: 8000,
+    aiMoveInterval: 115,
     spawnDropDelay: 2,
     maxRetargets: 3,
     playerCompletesLine: false,
     minMovesBeforeFastDrop: 3,
     sabotageDuration: 1.5,
     sabotageCooldown: 5.0,
+    baseFallTick: 600,
+    lineClearDelay: 600,
   },
   hard: {
     // Line clearing: aggressive clearing
@@ -199,13 +204,16 @@ const DIFFICULTY_SETTINGS = {
     cliffPenalty: 20,
     minFastDropHeight: 3,
     dangerZoneMargin: 0.5,
-    aiMoveInterval: 80,
+    dangerZonePenalty: 50,
+    aiMoveInterval: 50,
     spawnDropDelay: 0,
     maxRetargets: 1,
     playerCompletesLine: true,
     minMovesBeforeFastDrop: 2,
     sabotageDuration: 2.0,
     sabotageCooldown: 8.0,
+    baseFallTick: 450,
+    lineClearDelay: 400,
   },
 };
 
@@ -264,7 +272,7 @@ class GameEngine {
 
     // Timers for various game events (in milliseconds or seconds as noted)
     this.timers = {
-      pieceDrop: 0, // Accumulator for drop interval
+      pieceFall: 0, // Accumulator for gravity interval
       aiMove: 0, // Accumulator for AI movement
       spawn: 0, // Countdown for spawning next piece
       sabotage: 0, // Duration remaining for sabotage effect
@@ -284,6 +292,7 @@ class GameEngine {
     this.ai = {
       moveCount: 0, // Number of moves made for current piece
       target: null, // Calculated target position {x, rotation}
+      path: [], // Path of moves to reach target
       state: "targeting", // 'targeting' or 'erratic'
       erraticDir: 1, // Direction for erratic movement
     };
@@ -353,7 +362,7 @@ class GameEngine {
     if (!this.settings.diffConfig.playerCompletesLine || !this.player || this.player.dead) return;
 
     if (this.checkPlayerCompletesLine()) {
-      if (this.timers.playerLineClear <= 0) this.timers.playerLineClear = this.constants.DROP_INTERVAL;
+      if (this.timers.playerLineClear <= 0) this.timers.playerLineClear = this.settings.diffConfig.lineClearDelay;
 
       this.timers.playerLineClear -= dt * 1000;
       if (this.timers.playerLineClear <= 0) {
@@ -501,7 +510,7 @@ class GameEngine {
       color: tetro.color,
       x: startX,
       y: 0,
-      dropCount: 0,
+      fallStepCount: 0,
     };
 
     this.ai.moveCount = 0;
@@ -512,7 +521,7 @@ class GameEngine {
       return;
     }
 
-    this.calculateAITarget();
+    this.calculateAITarget(null, this.isPlayerInDangerZone());
 
     if (this.sabotageQueued) {
       this.sabotageQueued = false;
@@ -542,8 +551,8 @@ class GameEngine {
       this.aiMove();
     }
 
-    this.timers.pieceDrop += scaledDt * 1000;
-    if (this.timers.pieceDrop >= this.constants.DROP_INTERVAL) {
+    this.timers.pieceFall += scaledDt * 1000;
+    if (this.timers.pieceFall >= this.settings.diffConfig.baseFallTick) {
       // If player is in danger zone, try to move away
       if (this.isPlayerInDangerZone()) {
         const maxRetargets = this.settings.diffConfig.maxRetargets;
@@ -553,10 +562,10 @@ class GameEngine {
         }
       }
 
-      this.timers.pieceDrop = 0;
+      this.timers.pieceFall = 0;
       if (this.canPlacePiece(this.currentPiece, 0, 1)) {
         this.currentPiece.y++;
-        this.currentPiece.dropCount++;
+        this.currentPiece.fallStepCount++;
         if (this.checkPieceSquishesPlayer()) {
           this.gameOver("You got squished by a falling block!");
         }
@@ -931,13 +940,14 @@ class GameEngine {
   calculateAITarget(overrideConfig = null, avoidPlayer = false) {
     if (!this.currentPiece) {
       this.ai.target = null;
+      this.ai.path = [];
       return;
     }
 
     let bestScore = -Infinity;
-    let bestMove = { x: this.currentPiece.x, rotation: 0 };
-    const shapes = TETROMINOES[this.currentPiece.type].shapes;
+    let bestState = null;
     const diffConfig = overrideConfig || this.settings.diffConfig;
+    const shapes = TETROMINOES[this.currentPiece.type].shapes;
 
     // Calculate board urgency (Panic Mode)
     let currentMaxHeight = 0;
@@ -951,53 +961,177 @@ class GameEngine {
     // Avoidance parameters
     let playerGridLeft = -1;
     let playerGridRight = -1;
-    let avoidancePenalty = 10000;
+    let avoidancePenalty = diffConfig.dangerZonePenalty !== undefined ? diffConfig.dangerZonePenalty : 10000;
 
     if (avoidPlayer && this.player) {
-      const margin = this.settings.diffConfig.dangerZoneMargin;
+      const margin = diffConfig.dangerZoneMargin;
       playerGridLeft = Math.floor(this.player.x / this.constants.CELL_SIZE - margin);
       playerGridRight = Math.ceil((this.player.x + this.constants.PLAYER_WIDTH) / this.constants.CELL_SIZE + margin);
 
       // Linearly reduce avoidance penalty as board fills up ("Panic Mode")
-      // At height 0: 10000
-      // At height 10: 5000
-      // At height 20: 0
-      avoidancePenalty = Math.max(0, 10000 - currentMaxHeight * 500);
+      avoidancePenalty = Math.max(0, avoidancePenalty - currentMaxHeight * (avoidancePenalty / 20));
     }
 
-    for (let rot = 0; rot < shapes.length; rot++) {
-      const shape = shapes[rot];
-      const width = shape[0].length;
+    // BFS State: { x, y, rotation }
+    const startState = {
+      x: this.currentPiece.x,
+      y: this.currentPiece.y,
+      rotation: this.currentPiece.rotation,
+    };
+    const startKey = `${startState.x},${startState.y},${startState.rotation}`;
 
-      for (let testX = 0; testX <= this.constants.COLS - width; testX++) {
-        // Avoidance check
+    const queue = [startState];
+    const visited = new Set([startKey]);
+    const parents = new Map(); // key -> { parentKey, action }
+
+    let iterations = 0;
+    const MAX_ITERATIONS = 4000; // Safety limit
+
+    while (queue.length > 0 && iterations < MAX_ITERATIONS) {
+      iterations++;
+      const current = queue.shift();
+      const currentKey = `${current.x},${current.y},${current.rotation}`;
+      const shape = shapes[current.rotation];
+
+      // Check if resting spot (cannot move down)
+      const tempPiece = {
+        x: current.x,
+        y: current.y,
+        shape: shape,
+        type: this.currentPiece.type,
+      };
+
+      const canMoveDown = this.canPlacePiece(tempPiece, 0, 1);
+
+      if (!canMoveDown) {
+        // Evaluate resting spot
         let penalty = 0;
         if (avoidPlayer) {
-          const pieceRight = testX + width;
-          // Check intersection with expanded player range
-          if (testX < playerGridRight && pieceRight > playerGridLeft) {
+          const width = shape[0].length;
+          const pieceRight = current.x + width;
+          if (current.x < playerGridRight && pieceRight > playerGridLeft) {
             penalty = avoidancePenalty;
           }
         }
 
-        let testY = this.currentPiece.y;
-        const testPiece = { x: testX, y: testY, shape: shape };
-
-        while (this.canPlacePiece(testPiece, 0, 1)) {
-          testPiece.y++;
-        }
-
-        if (!this.canPlacePiece(testPiece, 0, 0)) continue;
-
-        const score = this.evaluatePosition(testPiece, shape, diffConfig) - penalty;
+        const score = this.evaluatePosition(tempPiece, shape, diffConfig) - penalty;
         if (score > bestScore) {
           bestScore = score;
-          bestMove = { x: testX, rotation: rot };
+          bestState = current;
+        }
+      }
+
+      // Generate neighbors
+      // Prioritize horizontal/rotation moves to encourage early alignment
+      const neighbors = [
+        { action: "left", dx: -1, dy: 0, drot: 0 },
+        { action: "right", dx: 1, dy: 0, drot: 0 },
+        { action: "rotate", dx: 0, dy: 0, drot: 1 },
+        { action: "down", dx: 0, dy: 1, drot: 0 },
+      ];
+
+      for (const n of neighbors) {
+        const nextRot = (current.rotation + n.drot) % shapes.length;
+        const nextX = current.x + n.dx;
+        const nextY = current.y + n.dy;
+
+        const nextKey = `${nextX},${nextY},${nextRot}`;
+        if (visited.has(nextKey)) continue;
+
+        const nextShape = shapes[nextRot];
+
+        // Check Danger Zone Traversal
+        // If we are moving horizontally or rotating near the player, forbid it if avoidPlayer is on.
+        // We allow vertical movement (falling) through the zone (if it's not a direct hit, which evaluatePosition handles),
+        // but we want to prevent "sliding" into/through the player at the bottom.
+        if (avoidPlayer && (n.action === "left" || n.action === "right" || n.action === "rotate")) {
+          // Calculate piece bounds
+          const width = nextShape[0].length;
+          const pieceLeft = nextX;
+          const pieceRight = nextX + width;
+
+          // If the piece is low enough to be a threat
+          // Player height is ~1.5 cells. Let's say bottom 4 rows are "danger zone" for sliding.
+          // Or better: relative to player Y.
+          const playerYGrid = Math.floor(this.player.y / this.constants.CELL_SIZE);
+          const pieceBottomGrid = nextY + nextShape.length;
+
+          // If piece is near player vertical level (e.g. within 3 rows above player)
+          if (pieceBottomGrid >= playerYGrid - 2) {
+            // Check horizontal overlap with expanded danger zone
+            const nextInDanger = pieceLeft < playerGridRight && pieceRight > playerGridLeft;
+
+            if (nextInDanger) {
+              // Check if we are ALREADY in the danger zone.
+              // If we are, we must allow movement so we can escape!
+              // If we are NOT, we forbid entering it.
+              const curWidth = shape[0].length;
+              const curLeft = current.x;
+              const curRight = current.x + curWidth;
+              const curInDanger = curLeft < playerGridRight && curRight > playerGridLeft;
+
+              if (!curInDanger) {
+                // We are trying to move/rotate INTO the danger zone from outside.
+                // Treat this as blocked.
+                continue;
+              }
+            }
+          }
+        }
+
+        let valid = false;
+        if (n.action === "rotate") {
+          if (
+            this.canPlacePiece(
+              { x: current.x, y: current.y, shape: shape, type: this.currentPiece.type },
+              0,
+              0,
+              nextShape
+            )
+          ) {
+            valid = true;
+          }
+        } else {
+          // Move
+          if (
+            this.canPlacePiece({ x: current.x, y: current.y, shape: shape, type: this.currentPiece.type }, n.dx, n.dy)
+          ) {
+            valid = true;
+          }
+        }
+
+        if (valid) {
+          visited.add(nextKey);
+          parents.set(nextKey, { parentKey: currentKey, action: n.action });
+          queue.push({ x: nextX, y: nextY, rotation: nextRot });
         }
       }
     }
 
-    this.ai.target = bestMove;
+    this.ai.target = bestState;
+
+    // Reconstruct path of states
+    this.ai.path = [];
+    if (bestState) {
+      let currKey = `${bestState.x},${bestState.y},${bestState.rotation}`;
+      // Add the final state
+      this.ai.path.unshift({ x: bestState.x, y: bestState.y, rotation: bestState.rotation });
+
+      while (currKey !== startKey) {
+        const info = parents.get(currKey);
+        if (!info) break;
+
+        // Parse parent key to get state
+        const [px, py, prot] = info.parentKey.split(",").map(Number);
+        this.ai.path.unshift({ x: px, y: py, rotation: prot });
+
+        currKey = info.parentKey;
+      }
+      // Remove the start state from path, as we are already there
+      if (this.ai.path.length > 0) {
+        this.ai.path.shift();
+      }
+    }
   }
 
   evaluatePosition(piece, shape, diffConfig) {
@@ -1129,46 +1263,116 @@ class GameEngine {
       return;
     }
 
-    const target = this.ai.target;
-    if (!target) return;
+    // Use path if available
+    if (this.ai.path && this.ai.path.length > 0) {
+      const piece = this.currentPiece;
 
-    const piece = this.currentPiece;
+      // Check for Fast Drop opportunity
+      // If all remaining steps are just vertical drops (same X, same Rotation)
+      // And we meet the difficulty criteria for fast drop
+      let canFastDrop = true;
+      for (const step of this.ai.path) {
+        if (step.x !== piece.x || step.rotation !== piece.rotation) {
+          canFastDrop = false;
+          break;
+        }
+      }
 
-    if (piece.rotation !== target.rotation) {
-      const newRot = (piece.rotation + 1) % TETROMINOES[piece.type].shapes.length;
-      const newShape = getShape(piece.type, newRot);
-      if (this.canPlacePiece(piece, 0, 0, newShape)) {
-        piece.rotation = newRot;
-        piece.shape = newShape;
+      if (canFastDrop && this.ai.moveCount >= this.settings.diffConfig.minMovesBeforeFastDrop) {
+        if (piece.fallStepCount >= this.settings.diffConfig.spawnDropDelay) {
+          // Execute fast drop to the last valid position in path
+          // We can just jump to the last state in path
+          const lastState = this.ai.path[this.ai.path.length - 1];
+
+          // Verify we can actually place it there (just in case gravity/collision changed things)
+          // But since it's a vertical drop, we can just use the standard drop logic
+          let dropDist = 0;
+          let testY = piece.y;
+          const testPiece = { ...piece };
+          while (this.canPlacePiece(testPiece, 0, 1)) {
+            testPiece.y++;
+            dropDist++;
+          }
+
+          // Only drop if it matches our target Y (or is deeper/valid)
+          // Actually, if we are just dropping, we should drop as far as possible
+          if (dropDist >= this.settings.diffConfig.minFastDropHeight && !this.isPlayerInDangerZone()) {
+            piece.y = testPiece.y;
+            this.ai.path = []; // Path completed
+            return;
+          }
+        }
+      }
+
+      // Normal Path Following
+      const nextState = this.ai.path[0];
+
+      // 1. Check if we missed the path (fell too far)
+      if (piece.y > nextState.y) {
+        // We fell past the target Y. Recalculate.
+        // CRITICAL: Must respect danger zone when recalculating!
+        this.calculateAITarget(null, this.isPlayerInDangerZone());
         return;
       }
-    }
 
-    if (piece.x < target.x) {
-      if (this.canPlacePiece(piece, 1, 0)) piece.x++;
-    } else if (piece.x > target.x) {
-      if (this.canPlacePiece(piece, -1, 0)) piece.x--;
-    } else {
-      if (this.ai.moveCount >= this.settings.diffConfig.minMovesBeforeFastDrop) {
-        if (this.currentPiece.dropCount < this.settings.diffConfig.spawnDropDelay) {
-          return;
-        }
+      // 2. Check if we need to wait for gravity
+      if (piece.y < nextState.y) {
+        // Next step is down. Wait for gravity.
+        return;
+      }
 
-        let dropDist = 0;
-        let testY = piece.y;
-        const testPiece = { ...piece };
-        while (this.canPlacePiece(testPiece, 0, 1)) {
-          testPiece.y++;
-          dropDist++;
-        }
+      // 3. We are at the correct Y (piece.y == nextState.y)
+      // Execute the move (Rotation or Horizontal)
+      let success = false;
 
-        if (dropDist >= this.settings.diffConfig.minFastDropHeight && !this.isPlayerInDangerZone()) {
-          piece.y = testPiece.y;
+      if (piece.rotation !== nextState.rotation) {
+        // Rotate
+        // Determine direction (BFS explores +1 rotation)
+        // But we might have wrapped around.
+        // Since BFS uses (rot + 1) % 4, we just try that.
+        const newRot = nextState.rotation;
+        const newShape = getShape(piece.type, newRot);
+        if (this.canPlacePiece(piece, 0, 0, newShape)) {
+          piece.rotation = newRot;
+          piece.shape = newShape;
+          success = true;
         }
+      } else if (piece.x !== nextState.x) {
+        // Move Horizontal
+        const dx = nextState.x - piece.x;
+        // BFS moves 1 step at a time. dx should be -1 or 1.
+        if (Math.abs(dx) === 1) {
+          if (this.canPlacePiece(piece, dx, 0)) {
+            piece.x += dx;
+            success = true;
+          }
+        } else {
+          // Should not happen if path is continuous
+          // But if it does, try to move 1 step towards target
+          const stepX = Math.sign(dx);
+          if (this.canPlacePiece(piece, stepX, 0)) {
+            piece.x += stepX;
+            success = true;
+            // Don't remove node yet if we haven't reached it?
+            // Actually, if path is continuous, dx is 1.
+            // If dx > 1, we missed some steps or path is sparse.
+            // BFS path is dense. So this block is just safety.
+          }
+        }
+      } else {
+        // piece.x == nextState.x && piece.rotation == nextState.rotation && piece.y == nextState.y
+        // We are already at the state.
+        success = true;
+      }
+
+      if (success) {
+        this.ai.path.shift();
+      } else {
+        // Move failed (blocked?). Recalculate.
+        this.calculateAITarget(null, this.isPlayerInDangerZone());
       }
     }
   }
-
   gameOver(reason) {
     if (this.status !== "playing") return;
 
