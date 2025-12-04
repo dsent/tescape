@@ -1,5 +1,5 @@
 /**
- * Tetris Escape - Game Logic
+ * Tetromino Escape - Game Logic
  * Refactored for modularity, robustness, and performance.
  */
 
@@ -12,15 +12,11 @@ const DEFAULT_CONSTANTS = {
   COLS: 10,
   ROWS: 20,
   GRAVITY: 0.6,
-  JUMP_FORCE: -12,
+  JUMP_FORCE: -13.5,
   MOVE_SPEED: 4,
   TERMINAL_VELOCITY: 15,
   DROP_INTERVAL: 800,
-  AI_MOVE_INTERVAL: 100,
-  MIN_MOVES_BEFORE_FAST_DROP: 3,
   SPAWN_DELAY: 0.3, // seconds
-  SABOTAGE_DURATION: 1.5,
-  SABOTAGE_COOLDOWN: 5.0,
   LINE_HISTORY_WINDOW: 10,
 };
 
@@ -151,6 +147,14 @@ const DIFFICULTY_SETTINGS = {
     // Cliffs: very high penalty
     cliffPenalty: 50,
     minFastDropHeight: 6,
+    dangerZoneMargin: 1.5,
+    aiMoveInterval: 300,
+    spawnDropDelay: 3,
+    maxRetargets: -1,
+    playerCompletesLine: false,
+    minMovesBeforeFastDrop: 4,
+    sabotageDuration: 1.5,
+    sabotageCooldown: 3.0,
   },
   normal: {
     // Line clearing: slight preference to clear, but not aggressive
@@ -168,6 +172,14 @@ const DIFFICULTY_SETTINGS = {
     // Cliffs: high penalty
     cliffPenalty: 30,
     minFastDropHeight: 4,
+    dangerZoneMargin: 1.0,
+    aiMoveInterval: 150,
+    spawnDropDelay: 2,
+    maxRetargets: 3,
+    playerCompletesLine: false,
+    minMovesBeforeFastDrop: 3,
+    sabotageDuration: 1.5,
+    sabotageCooldown: 5.0,
   },
   hard: {
     // Line clearing: aggressive clearing
@@ -181,11 +193,19 @@ const DIFFICULTY_SETTINGS = {
     maxHeightPenalty: 5,
     // Bumpiness: high penalty for flat surface (easier to clear)
     bumpinessPenalty: 10,
-    // Wells: moderate penalty (some wells help with Tetrises)
+    // Wells: moderate penalty (some wells help with Tetrominos)
     wellPenalty: 15,
     // Cliffs: moderate penalty
     cliffPenalty: 20,
     minFastDropHeight: 3,
+    dangerZoneMargin: 0.5,
+    aiMoveInterval: 80,
+    spawnDropDelay: 0,
+    maxRetargets: 1,
+    playerCompletesLine: true,
+    minMovesBeforeFastDrop: 2,
+    sabotageDuration: 2.0,
+    sabotageCooldown: 8.0,
   },
 };
 
@@ -249,6 +269,7 @@ class GameEngine {
       spawn: 0, // Countdown for spawning next piece
       sabotage: 0, // Duration remaining for sabotage effect
       sabotageCooldown: 0, // Cooldown remaining before next sabotage
+      playerLineClear: 0, // Timer for player completing a line
     };
 
     // Statistics for the current session
@@ -269,12 +290,14 @@ class GameEngine {
 
     this.sabotageQueued = false;
 
-    // Game Settings
-    this.settings = {
-      difficulty: "normal",
-      speed: 1.0,
-      diffConfig: DIFFICULTY_SETTINGS.normal,
-    };
+    // Game Settings - Preserve existing settings if available, otherwise default
+    if (!this.settings) {
+      this.settings = {
+        difficulty: "normal",
+        speed: 1.0,
+        diffConfig: DIFFICULTY_SETTINGS.normal,
+      };
+    }
 
     // Visual effects (managed by engine but rendered by UI)
     this.particles = [];
@@ -321,8 +344,54 @@ class GameEngine {
     }
 
     this.updatePlayer(dt);
+    this.updatePlayerLineClear(dt);
     this.updatePiece(dt);
     this.updateParticles(dt);
+  }
+
+  updatePlayerLineClear(dt) {
+    if (!this.settings.diffConfig.playerCompletesLine || !this.player || this.player.dead) return;
+
+    if (this.checkPlayerCompletesLine()) {
+      if (this.timers.playerLineClear <= 0) this.timers.playerLineClear = this.constants.DROP_INTERVAL;
+
+      this.timers.playerLineClear -= dt * 1000;
+      if (this.timers.playerLineClear <= 0) {
+        this.executePlayerLineClear();
+      }
+    } else {
+      this.timers.playerLineClear = 0;
+    }
+  }
+
+  getPlayerCompletingCells() {
+    if (!this.player) return [];
+    const pLeft = Math.floor(this.player.x / this.constants.CELL_SIZE);
+    const pRight = Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE);
+    const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
+    const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
+
+    let completingCells = [];
+
+    for (let y = pTop; y <= pBottom; y++) {
+      if (y < 0 || y >= this.constants.ROWS) continue;
+
+      let emptyCount = 0;
+      let emptyX = -1;
+      for (let x = 0; x < this.constants.COLS; x++) {
+        if (this.grid[y][x] === null) {
+          emptyCount++;
+          emptyX = x;
+        }
+      }
+
+      if (emptyCount === 1) {
+        if (emptyX >= pLeft && emptyX <= pRight) {
+          completingCells.push({ x: emptyX, y: y });
+        }
+      }
+    }
+    return completingCells;
   }
 
   updatePlayer(dt) {
@@ -376,14 +445,6 @@ class GameEngine {
       player.vy = 0;
     }
 
-    // Ceiling/Win check
-    if (newY < 0) {
-      if (newY <= -this.constants.PLAYER_HEIGHT * 0.5) {
-        this.gameWin();
-        return;
-      }
-    }
-
     // Collision check
     if (player.vy > 0) {
       // Falling
@@ -407,6 +468,11 @@ class GameEngine {
     }
 
     player.y = newY;
+
+    // Win check: if player is fully above the escape line (bottom of row 1)
+    if (player.y + this.constants.PLAYER_HEIGHT <= this.constants.CELL_SIZE * 2) {
+      this.gameWin();
+    }
   }
 
   isOnGround() {
@@ -435,9 +501,11 @@ class GameEngine {
       color: tetro.color,
       x: startX,
       y: 0,
+      dropCount: 0,
     };
 
     this.ai.moveCount = 0;
+    this.ai.retargetCount = 0;
 
     if (!this.canPlacePiece(this.currentPiece, 0, 0)) {
       this.gameOver("The playing field filled up!");
@@ -469,16 +537,26 @@ class GameEngine {
     const scaledDt = dt * this.settings.speed;
 
     this.timers.aiMove += scaledDt * 1000;
-    if (this.timers.aiMove >= this.constants.AI_MOVE_INTERVAL) {
+    if (this.timers.aiMove >= this.settings.diffConfig.aiMoveInterval) {
       this.timers.aiMove = 0;
       this.aiMove();
     }
 
     this.timers.pieceDrop += scaledDt * 1000;
     if (this.timers.pieceDrop >= this.constants.DROP_INTERVAL) {
+      // If player is in danger zone, try to move away
+      if (this.isPlayerInDangerZone()) {
+        const maxRetargets = this.settings.diffConfig.maxRetargets;
+        if (maxRetargets === -1 || this.ai.retargetCount < maxRetargets) {
+          this.calculateAITarget(null, true);
+          this.ai.retargetCount++;
+        }
+      }
+
       this.timers.pieceDrop = 0;
       if (this.canPlacePiece(this.currentPiece, 0, 1)) {
         this.currentPiece.y++;
+        this.currentPiece.dropCount++;
         if (this.checkPieceSquishesPlayer()) {
           this.gameOver("You got squished by a falling block!");
         }
@@ -535,8 +613,110 @@ class GameEngine {
     return true;
   }
 
+  checkPlayerCompletesLine() {
+    if (!this.player) return false;
+
+    const pLeft = Math.floor(this.player.x / this.constants.CELL_SIZE);
+    const pRight = Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE);
+    const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
+    const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
+
+    for (let y = pTop; y <= pBottom; y++) {
+      if (y < 0 || y >= this.constants.ROWS) continue;
+
+      let emptyCount = 0;
+      let emptyX = -1;
+
+      for (let x = 0; x < this.constants.COLS; x++) {
+        if (this.grid[y][x] === null) {
+          emptyCount++;
+          emptyX = x;
+        }
+      }
+
+      if (emptyCount === 1) {
+        if (emptyX >= pLeft && emptyX <= pRight) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  executePlayerLineClear() {
+    if (!this.player) return;
+
+    const pLeft = Math.floor(this.player.x / this.constants.CELL_SIZE);
+    const pRight = Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE);
+    const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
+    const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
+
+    let linesToClear = [];
+    for (let y = 0; y < this.constants.ROWS; y++) {
+      let emptyCount = 0;
+      let emptyX = -1;
+
+      for (let x = 0; x < this.constants.COLS; x++) {
+        if (this.grid[y][x] === null) {
+          emptyCount++;
+          emptyX = x;
+        }
+      }
+
+      if (emptyCount === 1) {
+        // Check if player covers this gap
+        if (y >= pTop && y <= pBottom && emptyX >= pLeft && emptyX <= pRight) {
+          linesToClear.push(y);
+        }
+      }
+    }
+
+    if (linesToClear.length === 0) return;
+
+    // Create particles for the lines
+    for (let lineY of linesToClear) {
+      for (let x = 0; x < this.constants.COLS; x++) {
+        const color = this.grid[lineY][x] || "#4ecca3"; // Use player color for player cells
+        this.createParticles(
+          x * this.constants.CELL_SIZE + this.constants.CELL_SIZE / 2,
+          lineY * this.constants.CELL_SIZE + this.constants.CELL_SIZE / 2,
+          color
+        );
+      }
+    }
+
+    // Create extra particles for player death
+    this.createParticles(
+      this.player.x + this.constants.PLAYER_WIDTH / 2,
+      this.player.y + this.constants.PLAYER_HEIGHT / 2,
+      "#4ecca3"
+    );
+    this.createParticles(
+      this.player.x + this.constants.PLAYER_WIDTH / 2,
+      this.player.y + this.constants.PLAYER_HEIGHT / 2,
+      "#ffd93d"
+    );
+
+    // Remove lines
+    linesToClear.sort((a, b) => a - b);
+    let newGrid = this.grid.filter((_, index) => !linesToClear.includes(index));
+    while (newGrid.length < this.constants.ROWS) {
+      newGrid.unshift(Array(this.constants.COLS).fill(null));
+    }
+    this.grid = newGrid;
+
+    this.player.dead = true;
+    this.player.killedByLine = true;
+
+    // Delay game over slightly to show particles
+    setTimeout(() => {
+      this.gameOver("You got cleared with the line!");
+    }, 500);
+  }
   checkLines() {
     let linesToClear = [];
+
+    // Standard line check (player not involved here, handled by updatePlayerLineClear)
     for (let y = 0; y < this.constants.ROWS; y++) {
       if (this.grid[y].every((cell) => cell !== null)) {
         linesToClear.push(y);
@@ -544,17 +724,6 @@ class GameEngine {
     }
 
     if (linesToClear.length === 0) return;
-
-    if (this.player) {
-      const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
-      const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
-      for (let lineY of linesToClear) {
-        if (lineY >= pTop && lineY <= pBottom) {
-          this.gameOver("You got cleared with the line!");
-          return;
-        }
-      }
-    }
 
     // Particles (just data generation)
     for (let lineY of linesToClear) {
@@ -606,6 +775,20 @@ class GameEngine {
       p.life -= dt * 2;
       if (p.life <= 0) this.particles.splice(i, 1);
     }
+  }
+
+  isPlayerInDangerZone(piece = this.currentPiece) {
+    if (!piece || !this.player) return false;
+
+    const pieceLeft = piece.x * this.constants.CELL_SIZE;
+    const pieceRight = (piece.x + piece.shape[0].length) * this.constants.CELL_SIZE;
+
+    const margin = this.settings.diffConfig.dangerZoneMargin * this.constants.CELL_SIZE;
+    const playerLeft = this.player.x - margin;
+    const playerRight = this.player.x + this.constants.PLAYER_WIDTH + margin;
+
+    // Check horizontal overlap
+    return pieceLeft < playerRight && pieceRight > playerLeft;
   }
 
   checkCollision(px, py, pw, ph) {
@@ -713,7 +896,7 @@ class GameEngine {
   }
 
   applySabotageToCurrent() {
-    this.timers.sabotage = this.constants.SABOTAGE_DURATION * 1000;
+    this.timers.sabotage = this.settings.diffConfig.sabotageDuration * 1000;
     this.calculateAITarget(DIFFICULTY_SETTINGS.easy);
 
     let dropDist = this.getDropDistance();
@@ -745,7 +928,7 @@ class GameEngine {
     }
   }
 
-  calculateAITarget(overrideConfig = null) {
+  calculateAITarget(overrideConfig = null, avoidPlayer = false) {
     if (!this.currentPiece) {
       this.ai.target = null;
       return;
@@ -756,11 +939,47 @@ class GameEngine {
     const shapes = TETROMINOES[this.currentPiece.type].shapes;
     const diffConfig = overrideConfig || this.settings.diffConfig;
 
+    // Calculate board urgency (Panic Mode)
+    let currentMaxHeight = 0;
+    for (let y = 0; y < this.constants.ROWS; y++) {
+      if (this.grid[y].some((c) => c !== null)) {
+        currentMaxHeight = this.constants.ROWS - y;
+        break;
+      }
+    }
+
+    // Avoidance parameters
+    let playerGridLeft = -1;
+    let playerGridRight = -1;
+    let avoidancePenalty = 10000;
+
+    if (avoidPlayer && this.player) {
+      const margin = this.settings.diffConfig.dangerZoneMargin;
+      playerGridLeft = Math.floor(this.player.x / this.constants.CELL_SIZE - margin);
+      playerGridRight = Math.ceil((this.player.x + this.constants.PLAYER_WIDTH) / this.constants.CELL_SIZE + margin);
+
+      // Linearly reduce avoidance penalty as board fills up ("Panic Mode")
+      // At height 0: 10000
+      // At height 10: 5000
+      // At height 20: 0
+      avoidancePenalty = Math.max(0, 10000 - currentMaxHeight * 500);
+    }
+
     for (let rot = 0; rot < shapes.length; rot++) {
       const shape = shapes[rot];
       const width = shape[0].length;
 
       for (let testX = 0; testX <= this.constants.COLS - width; testX++) {
+        // Avoidance check
+        let penalty = 0;
+        if (avoidPlayer) {
+          const pieceRight = testX + width;
+          // Check intersection with expanded player range
+          if (testX < playerGridRight && pieceRight > playerGridLeft) {
+            penalty = avoidancePenalty;
+          }
+        }
+
         let testY = this.currentPiece.y;
         const testPiece = { x: testX, y: testY, shape: shape };
 
@@ -770,13 +989,14 @@ class GameEngine {
 
         if (!this.canPlacePiece(testPiece, 0, 0)) continue;
 
-        const score = this.evaluatePosition(testPiece, shape, diffConfig);
+        const score = this.evaluatePosition(testPiece, shape, diffConfig) - penalty;
         if (score > bestScore) {
           bestScore = score;
           bestMove = { x: testX, rotation: rot };
         }
       }
     }
+
     this.ai.target = bestMove;
   }
 
@@ -845,19 +1065,45 @@ class GameEngine {
       const lh = x > 0 ? heights[x - 1] : 99;
       const rh = x < this.constants.COLS - 1 ? heights[x + 1] : 99;
       const depth = Math.min(lh, rh) - heights[x];
-      if (depth > 2) wells += depth - 2;
+      if (depth > 2) {
+        // Quadratic penalty for deep wells to prevent player traps
+        wells += (depth - 2) * (depth - 2);
+
+        // CATASTROPHIC penalty for inescapable wells (depth >= 4)
+        // Must be significantly higher than max avoidance penalty (10000)
+        // 500 * 20 (min wellPenalty) = 10,000.
+        // 500 * 35 (normal) = 17,500.
+        if (depth >= 4) {
+          wells += 500 + (depth - 4) * 100;
+        }
+      }
     }
 
     let cliffs = 0;
     for (let x = 0; x < this.constants.COLS - 1; x++) {
       const d = Math.abs(heights[x] - heights[x + 1]);
-      if (d > 2) cliffs += d - 2;
+      if (d > 2) {
+        cliffs += d - 2;
+        // Catastrophic penalty for cliffs >= 4 (unjumpable walls)
+        if (d >= 4) {
+          cliffs += 500 + (d - 4) * 100;
+        }
+      }
     }
 
     score -= holes * diff.holePenalty;
     score -= coveredHoles * diff.coveredHolePenalty;
     score -= heights.reduce((a, b) => a + b, 0) * diff.heightPenalty;
     score -= Math.max(...heights) * diff.maxHeightPenalty;
+
+    // Catastrophic penalty for reaching the top (Game Over risk)
+    const maxBoardHeight = Math.max(...heights);
+    if (maxBoardHeight >= this.constants.ROWS - 2) {
+      score -= 100000;
+    } else if (maxBoardHeight >= this.constants.ROWS - 4) {
+      score -= 20000;
+    }
+
     score -= bumpiness * diff.bumpinessPenalty;
     score -= wells * diff.wellPenalty;
     score -= cliffs * diff.cliffPenalty;
@@ -894,8 +1140,8 @@ class GameEngine {
       if (this.canPlacePiece(piece, 0, 0, newShape)) {
         piece.rotation = newRot;
         piece.shape = newShape;
+        return;
       }
-      return;
     }
 
     if (piece.x < target.x) {
@@ -903,7 +1149,11 @@ class GameEngine {
     } else if (piece.x > target.x) {
       if (this.canPlacePiece(piece, -1, 0)) piece.x--;
     } else {
-      if (this.ai.moveCount >= this.constants.MIN_MOVES_BEFORE_FAST_DROP) {
+      if (this.ai.moveCount >= this.settings.diffConfig.minMovesBeforeFastDrop) {
+        if (this.currentPiece.dropCount < this.settings.diffConfig.spawnDropDelay) {
+          return;
+        }
+
         let dropDist = 0;
         let testY = piece.y;
         const testPiece = { ...piece };
@@ -912,32 +1162,11 @@ class GameEngine {
           dropDist++;
         }
 
-        if (dropDist >= this.settings.diffConfig.minFastDropHeight && !this.isPlayerNearDropZone()) {
+        if (dropDist >= this.settings.diffConfig.minFastDropHeight && !this.isPlayerInDangerZone()) {
           piece.y = testPiece.y;
         }
       }
     }
-  }
-
-  isPlayerNearDropZone() {
-    if (!this.currentPiece || !this.player) return true;
-    const piece = this.currentPiece;
-
-    let testPiece = { ...piece };
-    while (this.canPlacePiece(testPiece, 0, 1)) testPiece.y++;
-
-    const pieceLeft = piece.x * this.constants.CELL_SIZE;
-    const pieceRight = (piece.x + piece.shape[0].length) * this.constants.CELL_SIZE;
-    const landingTop = testPiece.y * this.constants.CELL_SIZE;
-
-    const p = this.player;
-    const margin = this.constants.CELL_SIZE;
-
-    const hOverlap = p.x + this.constants.PLAYER_WIDTH + margin > pieceLeft && p.x - margin < pieceRight;
-    const vNear =
-      p.y + this.constants.PLAYER_HEIGHT + margin > landingTop - piece.shape.length * this.constants.CELL_SIZE;
-
-    return hOverlap && vNear;
   }
 
   gameOver(reason) {
@@ -984,7 +1213,7 @@ class GameEngine {
 
   triggerSabotage() {
     if (this.timers.sabotageCooldown > 0 || !this.currentPiece || this.status !== "playing") return;
-    this.timers.sabotageCooldown = this.constants.SABOTAGE_COOLDOWN * 1000;
+    this.timers.sabotageCooldown = this.settings.diffConfig.sabotageCooldown * 1000;
     const dropDist = this.getDropDistance();
     if (dropDist < 6) {
       this.sabotageQueued = true;
@@ -1085,7 +1314,13 @@ if (typeof window !== "undefined") {
     const p = game.player;
     if (!p) return;
 
-    if (p.dead) CTX.globalAlpha = 0.5;
+    if (p.dead) {
+      CTX.font = `${game.constants.CELL_SIZE}px serif`;
+      CTX.textAlign = "center";
+      CTX.textBaseline = "middle";
+      CTX.fillText("😵", p.x + game.constants.PLAYER_WIDTH / 2, p.y + game.constants.PLAYER_HEIGHT / 2);
+      return;
+    }
 
     const w = game.constants.PLAYER_WIDTH;
     const h = game.constants.PLAYER_HEIGHT;
@@ -1158,6 +1393,28 @@ if (typeof window !== "undefined") {
     CTX.font = "bold 14px sans-serif";
     CTX.textAlign = "center";
     CTX.fillText("▲ ESCAPE ZONE ▲", CANVAS.width / 2, game.constants.CELL_SIZE);
+  }
+
+  function drawDangerIndicators() {
+    if (game.timers.playerLineClear > 0) {
+      const cells = game.getPlayerCompletingCells();
+      const pulse = Math.sin(Date.now() / 100) * 0.5 + 0.5; // 0 to 1
+
+      CTX.save();
+      CTX.shadowBlur = 10 + pulse * 10;
+      CTX.shadowColor = "red";
+      CTX.fillStyle = `rgba(255, 0, 0, ${0.3 + pulse * 0.3})`;
+
+      cells.forEach((c) => {
+        CTX.fillRect(
+          c.x * game.constants.CELL_SIZE,
+          c.y * game.constants.CELL_SIZE,
+          game.constants.CELL_SIZE,
+          game.constants.CELL_SIZE
+        );
+      });
+      CTX.restore();
+    }
   }
 
   function updateUI() {
@@ -1305,6 +1562,7 @@ if (typeof window !== "undefined") {
 
     if (["playing", "paused", "gameover", "win"].includes(game.status)) {
       drawEscapeZone();
+      drawDangerIndicators();
       drawGrid();
       drawCurrentPiece();
       drawPlayer();

@@ -1,10 +1,10 @@
-# Tetris Escape
+# Tetromino Escape
 
-**Tetris Escape** is a browser-based game that combines classic block-stacking mechanics with platformer survival. You play as a tiny character trapped inside a Tetris well. An AI controls the falling blocks, and your goal is to dodge them, climb the debris, and survive as long as possible.
+**Tetromino Escape** is a browser-based game that combines classic block-stacking mechanics with platformer survival. You play as a tiny character trapped inside a Tetromino well. An AI controls the falling blocks, and your goal is to dodge them, climb the debris, and survive as long as possible.
 
 ## 🎮 How to Play
 
-Open `tetris-escape.html` in your web browser to start playing.
+Open `tetromino-escape.html` in your web browser to start playing.
 
 ### Controls
 
@@ -20,7 +20,7 @@ Avoid getting squished by falling blocks or cleared along with a line. Climb the
 
 ## ⚙️ Game Mechanics
 
-- **AI Opponent**: The game features an AI that plays Tetris against you.
+- **AI Opponent**: The game features an AI that plays Tetromino against you.
   - **Easy Mode**: The AI plays poorly, leaving holes and building high stacks (good for climbing).
   - **Normal Mode**: Balanced gameplay.
   - **Hard Mode**: The AI plays efficiently, clearing lines aggressively and keeping the stack low (harder to survive).
@@ -56,7 +56,7 @@ The simulation outputs statistics such as:
 
 ## 📂 Project Structure
 
-- `tetris-escape.html`: Main entry point for the game.
+- `tetromino-escape.html`: Main entry point for the game.
 - `js/game.js`: Core game logic (GameEngine) and browser rendering code.
 - `css/style.css`: Styling for the game interface.
 - `simulate.js`: Node.js script for running headless simulations.
