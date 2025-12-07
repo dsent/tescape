@@ -279,7 +279,9 @@ window.TE.GameEngine = class GameEngine {
       return;
     }
 
-    this.ai.calculateTarget(null, this.isPlayerInDangerZone());
+    // Always calculate with player avoidance enabled at spawn
+    // The danger zone reward will discourage targeting near the player
+    this.ai.calculateTarget(null, true);
 
     if (this.sabotageQueued) {
       this.sabotageQueued = false;
@@ -311,13 +313,9 @@ window.TE.GameEngine = class GameEngine {
 
     this.timers.pieceFall += scaledDt * 1000;
     if (this.timers.pieceFall >= this.settings.diffConfig.baseFallTick) {
-      // If player is in danger zone, try to move away
-      if (this.isPlayerInDangerZone()) {
-        const maxRetargets = this.settings.diffConfig.maxRetargets;
-        if (maxRetargets === -1 || this.ai.retargetCount < maxRetargets) {
-          this.ai.calculateTarget(null, true);
-          this.ai.retargetCount++;
-        }
+      // Smart retargeting: only recalculate if meaningful conditions are met
+      if (this.shouldRetarget()) {
+        this.ai.calculateTarget(null, true, true); // avoidPlayer=true, playerTriggered=true
       }
 
       this.timers.pieceFall = 0;
@@ -374,6 +372,43 @@ window.TE.GameEngine = class GameEngine {
           if (newX < 0 || newX >= this.constants.COLS) return false;
           if (newY >= this.constants.ROWS) return false;
           if (newY >= 0 && this.grid[newY] && this.grid[newY][newX]) return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  // Like canPlacePiece but also checks collision with the player.
+  // Used by AI for horizontal/rotation moves to prevent killing player with side moves.
+  canPlacePieceWithPlayer(piece, offsetX, offsetY, testShape = null) {
+    if (!this.canPlacePiece(piece, offsetX, offsetY, testShape)) return false;
+    if (!this.player) return true;
+
+    const shape = testShape || piece.shape;
+    const newPieceX = piece.x + offsetX;
+    const newPieceY = piece.y + offsetY;
+
+    // Check each block of the piece against the player
+    for (let py = 0; py < shape.length; py++) {
+      for (let px = 0; px < shape[py].length; px++) {
+        if (shape[py][px]) {
+          const blockLeft = (newPieceX + px) * this.constants.CELL_SIZE;
+          const blockRight = blockLeft + this.constants.CELL_SIZE;
+          const blockTop = (newPieceY + py) * this.constants.CELL_SIZE;
+          const blockBottom = blockTop + this.constants.CELL_SIZE;
+
+          const playerRight = this.player.x + this.constants.PLAYER_WIDTH;
+          const playerBottom = this.player.y + this.constants.PLAYER_HEIGHT;
+
+          // AABB collision
+          if (
+            blockLeft < playerRight &&
+            blockRight > this.player.x &&
+            blockTop < playerBottom &&
+            blockBottom > this.player.y
+          ) {
+            return false;
+          }
         }
       }
     }
@@ -558,6 +593,48 @@ window.TE.GameEngine = class GameEngine {
     return pieceLeft < playerRight && pieceRight > playerLeft;
   }
 
+  shouldRetarget() {
+    // Don't retarget if no piece or no player
+    if (!this.currentPiece || !this.player) return false;
+
+    // Check if current target is already safe (outside danger zone)
+    // If safe, no need to retarget regardless of player movement
+    if (this.ai.target) {
+      const margin = this.settings.diffConfig.dangerZoneMargin;
+      const playerGridLeft = Math.floor(this.player.x / this.constants.CELL_SIZE - margin);
+      const playerGridRight = Math.ceil(
+        (this.player.x + this.constants.PLAYER_WIDTH) / this.constants.CELL_SIZE + margin
+      );
+      const targetShape = window.TE.getShape(this.currentPiece.type, this.ai.target.rotation);
+      const targetLeft = this.ai.target.x;
+      const targetRight = this.ai.target.x + targetShape[0].length;
+
+      // If target is already outside the danger zone, no need to retarget
+      if (targetRight <= playerGridLeft || targetLeft >= playerGridRight) {
+        return false;
+      }
+    }
+
+    // Target is in danger zone - check if player moved significantly
+    const currentPlayerGridX = Math.floor(this.player.x / this.constants.CELL_SIZE);
+
+    // If we haven't tracked player position yet, record it and DO retarget
+    // (this means the initial calculation picked a dangerous target)
+    if (this.ai.lastPlayerGridX === null) {
+      this.ai.lastPlayerGridX = currentPlayerGridX;
+      // Only retarget if piece is actually near player's Y level
+      return this.isPlayerInDangerZone();
+    }
+
+    // Player hasn't moved enough - no retarget
+    if (Math.abs(currentPlayerGridX - this.ai.lastPlayerGridX) < 1) {
+      return false;
+    }
+
+    // Player moved and target is in danger zone - retarget
+    return true;
+  }
+
   checkCollision(px, py, pw, ph) {
     if (this.checkGridCollisionOnly(px, py, pw, ph)) return true;
     if (this.checkPieceCollisionOnly(px, py, pw, ph)) return true;
@@ -679,7 +756,7 @@ window.TE.GameEngine = class GameEngine {
     const piece = this.currentPiece;
     if (Math.random() < 0.1) this.ai.erraticDir *= -1;
 
-    if (this.canPlacePiece(piece, this.ai.erraticDir, 0)) {
+    if (this.canPlacePieceWithPlayer(piece, this.ai.erraticDir, 0)) {
       piece.x += this.ai.erraticDir;
     } else {
       this.ai.erraticDir *= -1;
@@ -688,7 +765,7 @@ window.TE.GameEngine = class GameEngine {
     if (Math.random() < 0.05) {
       const newRot = (piece.rotation + 1) % window.TE.TETROMINOES[piece.type].shapes.length;
       const newShape = window.TE.getShape(piece.type, newRot);
-      if (this.canPlacePiece(piece, 0, 0, newShape)) {
+      if (this.canPlacePieceWithPlayer(piece, 0, 0, newShape)) {
         piece.rotation = newRot;
         piece.shape = newShape;
       }

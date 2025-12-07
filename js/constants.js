@@ -9,6 +9,7 @@ window.TE.DEFAULT_CONSTANTS = {
   TERMINAL_VELOCITY: 15,
   SPAWN_DELAY: 0.3, // seconds
   LINE_HISTORY_WINDOW: 10,
+  DEBUG_AI: true, // Show AI target and score
 };
 
 window.TE.TETROMINOES = {
@@ -123,88 +124,103 @@ window.TE.TETROMINOES = {
 
 window.TE.DIFFICULTY_SETTINGS = {
   easy: {
-    // Line clearing: actively avoid
-    lineReward: -100,
-    // Holes: tolerate some holes to build terrain
-    holePenalty: 10,
-    coveredHolePenalty: 15,
-    // Height: actually REWARD height to build up debris
-    heightPenalty: -1, // Negative = reward
-    maxHeightPenalty: -1,
-    // Bumpiness: low penalty allows uneven terrain
-    bumpinessPenalty: 2,
-    // Wells: very high penalty to keep terrain climbable
-    wellPenalty: 50,
-    // Cliffs: very high penalty
-    cliffPenalty: 50,
-    minFastDropHeight: 6,
-    dangerZoneMargin: 1.5,
-    dangerZonePenalty: 10000,
+    // Speed and timing
+    baseFallTick: 800,
     aiMoveInterval: 300,
-    spawnDropDelay: 3,
-    maxRetargets: -1,
+    // Fast drop settings
+    spawnDropDelay: 2,
+    minFastDropHeight: 6,
+    minMovesBeforeFastDrop: 3,
+    // Line clearing
+    lineReward: 1, // Don't reward line clears much
+    // Holes
+    holeReward: -10, // Mild penalty
+    coveredHoleReward: -15, // Higher penalty for covered holes
+    // Height
+    heightReward: 0, // Don't penalize height much
+    maxHeightReward: 0, // No penalty for max height
+    // Bumpiness: don't punish uneven terrain too much
+    bumpinessReward: -2,
+    // Wells: very high penalty to keep terrain climbable
+    wellReward: -50,
+    // Cliffs: very high penalty
+    cliffReward: -50,
+    // Avoiding player
+    dangerZoneMargin: 1.0,
+    dangerZoneReward: -1000,
+    dangerZoneDecay: 1.0, // Never decays - always avoids player
+    // Can the player complete lines?
     playerCompletesLine: false,
-    minMovesBeforeFastDrop: 4,
+    lineClearDelay: 800,
+    // Sabotage settings
     sabotageDuration: 1.5,
     sabotageCooldown: 3.0,
-    baseFallTick: 800,
-    lineClearDelay: 800,
   },
   normal: {
+    // Speed and timing
+    baseFallTick: 600,
+    aiMoveInterval: 115,
+    // Fast drop settings
+    spawnDropDelay: 2,
+    minFastDropHeight: 4,
+    minMovesBeforeFastDrop: 3,
     // Line clearing: slight preference to clear, but not aggressive
     lineReward: 20,
     // Holes: moderate penalty
-    holePenalty: 40,
-    coveredHolePenalty: 15,
+    holeReward: -40,
+    coveredHoleReward: -15,
     // Height: slight penalty
-    heightPenalty: 1,
-    maxHeightPenalty: 2,
+    heightReward: -1,
+    maxHeightReward: -2,
     // Bumpiness: moderate penalty
-    bumpinessPenalty: 4,
+    bumpinessReward: -4,
     // Wells: high penalty for climbability
-    wellPenalty: 35,
+    wellReward: -35,
     // Cliffs: high penalty
-    cliffPenalty: 30,
-    minFastDropHeight: 4,
-    dangerZoneMargin: 1.0,
-    dangerZonePenalty: 8000,
-    aiMoveInterval: 115,
-    spawnDropDelay: 2,
-    maxRetargets: 3,
+    cliffReward: -30,
+    // Avoiding player
+    dangerZoneMargin: 0.8,
+    dangerZoneReward: -500,
+    dangerZoneDecay: 0.7, // Moderate decay - stops caring after ~3-4 retargets
+    // Can the player complete lines?
     playerCompletesLine: false,
-    minMovesBeforeFastDrop: 3,
+    lineClearDelay: 800,
+    // Sabotage settings
     sabotageDuration: 1.5,
     sabotageCooldown: 5.0,
-    baseFallTick: 600,
-    lineClearDelay: 600,
   },
   hard: {
+    // Speed and timing
+    baseFallTick: 450,
+    aiMoveInterval: 50,
+    // Fast drop settings
+    spawnDropDelay: 0,
+    minFastDropHeight: 3,
+    minMovesBeforeFastDrop: 2,
     // Line clearing: aggressive clearing
     lineReward: 200,
     multiLineBonus: true,
     // Holes: severe penalty
-    holePenalty: 100,
-    coveredHolePenalty: 15,
+    holeReward: -100,
+    coveredHoleReward: -15,
     // Height: penalize to keep stack low
-    heightPenalty: 4,
-    maxHeightPenalty: 5,
+    heightReward: -4,
+    maxHeightReward: -5,
     // Bumpiness: high penalty for flat surface (easier to clear)
-    bumpinessPenalty: 10,
+    bumpinessReward: -10,
     // Wells: moderate penalty (some wells help with Tetrominos)
-    wellPenalty: 15,
+    wellReward: -15,
     // Cliffs: moderate penalty
-    cliffPenalty: 20,
-    minFastDropHeight: 3,
-    dangerZoneMargin: 0.5,
-    dangerZonePenalty: 50,
-    aiMoveInterval: 50,
-    spawnDropDelay: 0,
-    maxRetargets: 1,
+    cliffReward: -20,
+    // Avoiding player
+    dangerZoneMargin: 0.4,
+    dangerZoneReward: -75,
+    dangerZoneDecay: 0.4, // Aggressive decay - stops caring after ~2 retargets
+    // Can the player complete lines?
     playerCompletesLine: true,
-    minMovesBeforeFastDrop: 2,
+    lineClearDelay: 800,
+    // Sabotage settings
     sabotageDuration: 2.0,
     sabotageCooldown: 8.0,
-    baseFallTick: 450,
-    lineClearDelay: 400,
   },
 };

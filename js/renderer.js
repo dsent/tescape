@@ -23,6 +23,7 @@ window.TE.GameRenderer = class GameRenderer {
       this.drawDangerIndicators(game);
       this.drawGrid(game);
       this.drawCurrentPiece(game);
+      this.drawDebugOverlay(game);
       this.drawPlayer(game);
       this.drawParticles(game);
 
@@ -211,5 +212,80 @@ window.TE.GameRenderer = class GameRenderer {
       });
       ctx.restore();
     }
+  }
+
+  drawDebugOverlay(game) {
+    if (!game.constants.DEBUG_AI) return;
+    if (!game.ai || !game.ai.target || !game.currentPiece) return;
+
+    const { ctx } = this;
+    const target = game.ai.target;
+    const shape = window.TE.getShape(game.currentPiece.type, target.rotation);
+    const cellSize = game.constants.CELL_SIZE;
+
+    // Draw path steps (if any) as small dots
+    if (game.ai.path && game.ai.path.length > 0) {
+      ctx.save();
+      ctx.fillStyle = "rgba(0, 255, 255, 0.4)";
+      for (const step of game.ai.path) {
+        const stepShape = window.TE.getShape(game.currentPiece.type, step.rotation);
+        for (let y = 0; y < stepShape.length; y++) {
+          for (let x = 0; x < stepShape[y].length; x++) {
+            if (stepShape[y][x]) {
+              const px = (step.x + x) * cellSize + cellSize / 2;
+              const py = (step.y + y) * cellSize + cellSize / 2;
+              ctx.beginPath();
+              ctx.arc(px, py, 4, 0, Math.PI * 2);
+              ctx.fill();
+            }
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    // Highlight target position with semi-transparent overlay
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 0, 0.25)";
+    ctx.strokeStyle = "rgba(255, 255, 0, 0.8)";
+    ctx.lineWidth = 2;
+
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x]) {
+          const px = (target.x + x) * cellSize;
+          const py = (target.y + y) * cellSize;
+          ctx.fillRect(px, py, cellSize, cellSize);
+          ctx.strokeRect(px + 1, py + 1, cellSize - 2, cellSize - 2);
+        }
+      }
+    }
+    ctx.restore();
+
+    // Draw score and debug info in top-left corner (inside canvas)
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(5, 35, 120, 72);
+
+    ctx.fillStyle = "#00ff00";
+    ctx.font = "11px monospace";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+
+    const x = 10;
+    let y = 40;
+    const lineHeight = 14;
+
+    ctx.fillText(`Score: ${game.ai.targetScore?.toFixed(0) ?? "N/A"}`, x, y);
+    y += lineHeight;
+    ctx.fillText(`Target: (${target.x}, ${target.y})`, x, y);
+    y += lineHeight;
+    ctx.fillText(`Rot: ${target.rotation}`, x, y);
+    y += lineHeight;
+    ctx.fillText(`Retargets: ${game.ai.retargetCount}`, x, y);
+    y += lineHeight;
+    ctx.fillText(`Path: ${game.ai.path?.length ?? 0} steps`, x, y);
+
+    ctx.restore();
   }
 };

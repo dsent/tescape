@@ -10,9 +10,13 @@ window.TE.AIController = class AIController {
     this.moveCount = 0;
     this.retargetCount = 0;
     this.target = null;
+    this.targetScore = null;
     this.path = [];
     this.state = "targeting";
     this.erraticDir = 1;
+    // Track for meaningful retarget detection
+    this.lastTargetKey = null;
+    this.lastPlayerGridX = null;
   }
 
   checkRotationOcclusion(currentX, currentY, currentShape, nextShape) {
@@ -38,7 +42,7 @@ window.TE.AIController = class AIController {
     const piece = this.engine.currentPiece;
     if (Math.random() < 0.1) this.erraticDir *= -1;
 
-    if (this.engine.canPlacePiece(piece, this.erraticDir, 0)) {
+    if (this.engine.canPlacePieceWithPlayer(piece, this.erraticDir, 0)) {
       piece.x += this.erraticDir;
     } else {
       this.erraticDir *= -1;
@@ -48,7 +52,7 @@ window.TE.AIController = class AIController {
       const newRot = (piece.rotation + 1) % window.TE.TETROMINOES[piece.type].shapes.length;
       const newShape = window.TE.getShape(piece.type, newRot);
       if (
-        this.engine.canPlacePiece(piece, 0, 0, newShape) &&
+        this.engine.canPlacePieceWithPlayer(piece, 0, 0, newShape) &&
         this.checkRotationOcclusion(piece.x, piece.y, piece.shape, newShape)
       ) {
         piece.rotation = newRot;
@@ -57,7 +61,7 @@ window.TE.AIController = class AIController {
     }
   }
 
-  calculateTarget(overrideConfig = null, avoidPlayer = false) {
+  calculateTarget(overrideConfig = null, avoidPlayer = false, playerTriggered = false) {
     if (!this.engine.currentPiece) {
       this.target = null;
       this.path = [];
@@ -81,7 +85,7 @@ window.TE.AIController = class AIController {
     // Avoidance parameters
     let playerGridLeft = -1;
     let playerGridRight = -1;
-    let avoidancePenalty = diffConfig.dangerZonePenalty !== undefined ? diffConfig.dangerZonePenalty : 10000;
+    let dangerZoneReward = diffConfig.dangerZoneReward; // The reward is usually negative
 
     if (avoidPlayer && this.engine.player) {
       const margin = diffConfig.dangerZoneMargin;
@@ -90,8 +94,15 @@ window.TE.AIController = class AIController {
         (this.engine.player.x + this.engine.constants.PLAYER_WIDTH) / this.engine.constants.CELL_SIZE + margin
       );
 
-      // Linearly reduce avoidance penalty as board fills up ("Panic Mode")
-      avoidancePenalty = Math.max(0, avoidancePenalty - currentMaxHeight * (avoidancePenalty / 20));
+      // Apply decay based on retarget count
+      // Easy (1.0): never decays, Normal (0.7): moderate, Hard (0.4): aggressive
+      const decay = diffConfig.dangerZoneDecay ?? 1.0;
+      dangerZoneReward = diffConfig.dangerZoneReward * Math.pow(decay, this.retargetCount);
+
+      // Linearly reduce targeting player's danger zone reward as board fills up ("Panic Mode")
+      // For negative rewards, this makes them less negative; positive rewards become less positive.
+      // In any case, this will make AI stop caring about the player and just focus on survival.
+      dangerZoneReward = Math.min(0, dangerZoneReward - currentMaxHeight * (dangerZoneReward / 20));
     }
 
     // BFS State: { x, y, rotation }
@@ -127,16 +138,17 @@ window.TE.AIController = class AIController {
 
       if (!canMoveDown) {
         // Evaluate resting spot
-        let penalty = 0;
+        let dzReward = 0;
         if (avoidPlayer) {
           const width = shape[0].length;
           const pieceRight = current.x + width;
+          // The piece actually targets the player's grid space
           if (current.x < playerGridRight && pieceRight > playerGridLeft) {
-            penalty = avoidancePenalty;
+            dzReward = dangerZoneReward;
           }
         }
 
-        const score = this.evaluatePosition(tempPiece, shape, diffConfig) - penalty;
+        const score = this.evaluatePosition(tempPiece, shape, diffConfig) + dzReward;
         if (score > bestScore) {
           bestScore = score;
           bestState = current;
@@ -219,6 +231,20 @@ window.TE.AIController = class AIController {
     }
 
     this.target = bestState;
+    this.targetScore = bestScore;
+
+    // Track target changes for meaningful retarget counting
+    const newTargetKey = bestState ? `${bestState.x},${bestState.y},${bestState.rotation}` : null;
+    if (playerTriggered && this.lastTargetKey !== null && newTargetKey !== this.lastTargetKey) {
+      // Target actually changed due to player movement - count it
+      this.retargetCount++;
+    }
+    this.lastTargetKey = newTargetKey;
+
+    // Track player position for change detection
+    if (this.engine.player) {
+      this.lastPlayerGridX = Math.floor(this.engine.player.x / this.engine.constants.CELL_SIZE);
+    }
 
     this.path = [];
     if (bestState) {
@@ -323,10 +349,10 @@ window.TE.AIController = class AIController {
       }
     }
 
-    score -= holes * diff.holePenalty;
-    score -= coveredHoles * diff.coveredHolePenalty;
-    score -= heights.reduce((a, b) => a + b, 0) * diff.heightPenalty;
-    score -= Math.max(...heights) * diff.maxHeightPenalty;
+    score += holes * diff.holeReward;
+    score += coveredHoles * diff.coveredHoleReward;
+    score += heights.reduce((a, b) => a + b, 0) * diff.heightReward;
+    score += Math.max(...heights) * diff.maxHeightReward;
 
     const maxBoardHeight = Math.max(...heights);
     if (maxBoardHeight >= this.engine.constants.ROWS - 2) {
@@ -335,9 +361,9 @@ window.TE.AIController = class AIController {
       score -= 20000;
     }
 
-    score -= bumpiness * diff.bumpinessPenalty;
-    score -= wells * diff.wellPenalty;
-    score -= cliffs * diff.cliffPenalty;
+    score += bumpiness * diff.bumpinessReward;
+    score += wells * diff.wellReward;
+    score += cliffs * diff.cliffReward;
 
     const minEdge = Math.min(heights[0], heights[this.engine.constants.COLS - 1]);
     score += (10 - minEdge) * 3;
@@ -390,48 +416,74 @@ window.TE.AIController = class AIController {
         }
       }
 
-      const nextState = this.path[0];
+      // Clean up path steps we've already passed
+      while (this.path.length > 0 && this.path[0].y < piece.y) {
+        this.path.shift();
+      }
 
-      if (piece.y > nextState.y) {
-        this.calculateTarget(null, this.engine.isPlayerInDangerZone());
+      if (this.path.length === 0) {
+        return; // Path complete
+      }
+
+      // Find target state: the last step at current Y, or if none, the first step at Y+1
+      // This tells us where we need to be before the next gravity tick
+      let targetState = null;
+
+      for (const step of this.path) {
+        if (step.y === piece.y) {
+          // There's a step at current Y - we should match it
+          targetState = step;
+        } else if (step.y === piece.y + 1) {
+          // First step at next Y - we need to reach this x/rotation before falling
+          if (!targetState) {
+            targetState = step;
+          }
+          break; // Don't look further
+        } else if (step.y > piece.y + 1) {
+          // Too far ahead, stop looking
+          break;
+        }
+      }
+
+      if (!targetState) {
+        return; // No immediate moves needed
+      }
+
+      // If we're already at target state, nothing to do
+      if (piece.x === targetState.x && piece.rotation === targetState.rotation) {
+        // Clean up this step if it's at current Y
+        if (
+          this.path.length > 0 &&
+          this.path[0].y === piece.y &&
+          this.path[0].x === piece.x &&
+          this.path[0].rotation === piece.rotation
+        ) {
+          this.path.shift();
+        }
         return;
       }
 
-      if (piece.y < nextState.y) {
-        return;
-      }
-
+      // Execute move toward target
       let success = false;
 
-      if (piece.rotation !== nextState.rotation) {
-        const newRot = nextState.rotation;
+      if (piece.rotation !== targetState.rotation) {
+        const newRot = targetState.rotation;
         const newShape = window.TE.getShape(piece.type, newRot);
-        if (this.engine.canPlacePiece(piece, 0, 0, newShape)) {
+        if (this.engine.canPlacePieceWithPlayer(piece, 0, 0, newShape)) {
           piece.rotation = newRot;
           piece.shape = newShape;
           success = true;
         }
-      } else if (piece.x !== nextState.x) {
-        const dx = nextState.x - piece.x;
-        if (Math.abs(dx) === 1) {
-          if (this.engine.canPlacePiece(piece, dx, 0)) {
-            piece.x += dx;
-            success = true;
-          }
-        } else {
-          const stepX = Math.sign(dx);
-          if (this.engine.canPlacePiece(piece, stepX, 0)) {
-            piece.x += stepX;
-            success = true;
-          }
+      } else if (piece.x !== targetState.x) {
+        const dx = Math.sign(targetState.x - piece.x);
+        if (this.engine.canPlacePieceWithPlayer(piece, dx, 0)) {
+          piece.x += dx;
+          success = true;
         }
-      } else {
-        success = true;
       }
 
-      if (success) {
-        this.path.shift();
-      } else {
+      if (!success) {
+        // Move failed - Loss of sync with path, must recalculate
         this.calculateTarget(null, this.engine.isPlayerInDangerZone());
       }
     }
