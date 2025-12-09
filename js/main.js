@@ -34,6 +34,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // Connect Input Handler
   inputHandler.onPause = togglePause;
   inputHandler.onSabotage = () => game.triggerSabotage();
+  inputHandler.onDumpState = () => {
+    if (game.status === "playing" || game.status === "paused") {
+      const state = game.dumpState();
+      console.log("=== GAME STATE DUMP ===");
+      console.log(JSON.stringify(state, null, 2));
+      console.log("=== Copy the JSON above to use with simulate.js ===");
+      // Also copy to clipboard if available
+      if (navigator.clipboard) {
+        navigator.clipboard
+          .writeText(JSON.stringify(state, null, 2))
+          .then(() => console.log("State copied to clipboard!"))
+          .catch(() => console.log("Could not copy to clipboard"));
+      }
+    }
+  };
 
   // --- UI FUNCTIONS ---
 

@@ -130,6 +130,7 @@ window.TE.AIController = class AIController {
       const tempPiece = {
         x: current.x,
         y: current.y,
+        rotation: current.rotation,
         shape: shape,
         type: this.engine.currentPiece.type,
       };
@@ -325,27 +326,73 @@ window.TE.AIController = class AIController {
     let bumpiness = 0;
     for (let x = 0; x < this.engine.constants.COLS - 1; x++) bumpiness += Math.abs(heights[x] - heights[x + 1]);
 
-    let wells = 0;
-    for (let x = 0; x < this.engine.constants.COLS; x++) {
-      const lh = x > 0 ? heights[x - 1] : 99;
-      const rh = x < this.engine.constants.COLS - 1 ? heights[x + 1] : 99;
-      const depth = Math.min(lh, rh) - heights[x];
-      if (depth > 2) {
-        wells += (depth - 2) * (depth - 2);
-        if (depth >= 4) {
-          wells += 500 + (depth - 4) * 100;
-        }
+    // Funnel-based terrain traversability check
+    // A valid funnel has heights monotonically decreasing from edges toward center
+    const COLS = this.engine.constants.COLS;
+    const MID = Math.floor(COLS / 2); // 5 for 10-column grid
+
+    // Check funnel validity from each edge
+    // leftFunnelValidUntil: rightmost column index where left funnel is still valid
+    // rightFunnelValidUntil: leftmost column index where right funnel is still valid
+    let leftFunnelValidUntil = 0;
+    for (let x = 1; x < COLS; x++) {
+      if (heights[x] <= heights[x - 1]) {
+        leftFunnelValidUntil = x;
+      } else {
+        break; // Funnel broken
       }
     }
 
-    let cliffs = 0;
-    for (let x = 0; x < this.engine.constants.COLS - 1; x++) {
-      const d = Math.abs(heights[x] - heights[x + 1]);
-      if (d > 2) {
-        cliffs += d - 2;
-        if (d >= 4) {
-          cliffs += 500 + (d - 4) * 100;
+    let rightFunnelValidUntil = COLS - 1;
+    for (let x = COLS - 2; x >= 0; x--) {
+      if (heights[x] <= heights[x + 1]) {
+        rightFunnelValidUntil = x;
+      } else {
+        break; // Funnel broken
+      }
+    }
+
+    let terrainPenalty = 0;
+
+    // Check each adjacent pair for unclimbable cliffs (>=4 height difference)
+    for (let x = 0; x < COLS - 1; x++) {
+      const heightDiff = Math.abs(heights[x] - heights[x + 1]);
+      if (heightDiff < 4) continue; // Climbable, no penalty
+
+      // Determine which column is higher
+      const higherCol = heights[x] > heights[x + 1] ? x : x + 1;
+      const lowerCol = heights[x] > heights[x + 1] ? x + 1 : x;
+
+      // Check if this cliff is in a valid funnel pattern:
+      // The higher column should be on the "outer" side (toward edge)
+      // and the funnel should be intact up to that point
+      let isValidFunnel = false;
+
+      if (higherCol <= MID) {
+        // Left side of board: higher column should be more toward left (outer)
+        // and left funnel should be valid up to the lower column
+        if (higherCol < lowerCol && leftFunnelValidUntil >= lowerCol) {
+          isValidFunnel = true;
         }
+      } else {
+        // Right side of board: higher column should be more toward right (outer)
+        // and right funnel should be valid up to the lower column
+        if (higherCol > lowerCol && rightFunnelValidUntil <= lowerCol) {
+          isValidFunnel = true;
+        }
+      }
+
+      if (isValidFunnel) {
+        // Valid funnel cliff: scaled penalty based on distance from edge
+        // Edges (cols 0,9) = no penalty, inner columns = increasing penalty
+        const distFromEdge = Math.min(higherCol, COLS - 1 - higherCol);
+        // distFromEdge: 0 for edges, 1 for cols 1/8, 2 for cols 2/7, etc.
+        // Use exponential scaling: 2^distFromEdge
+        const scaledPenalty = diff.funnelPenaltyBase * Math.pow(2, distFromEdge);
+        terrainPenalty += scaledPenalty;
+      } else {
+        // Broken funnel: this cliff splits the playing field
+        terrainPenalty += diff.splitPenalty;
       }
     }
 
@@ -362,8 +409,7 @@ window.TE.AIController = class AIController {
     }
 
     score += bumpiness * diff.bumpinessReward;
-    score += wells * diff.wellReward;
-    score += cliffs * diff.cliffReward;
+    score += terrainPenalty;
 
     const minEdge = Math.min(heights[0], heights[this.engine.constants.COLS - 1]);
     score += (10 - minEdge) * 3;
@@ -483,8 +529,18 @@ window.TE.AIController = class AIController {
       }
 
       if (!success) {
-        // Move failed - Loss of sync with path, must recalculate
-        this.calculateTarget(null, this.engine.isPlayerInDangerZone());
+        // Move failed - check if we should recalculate or just give up
+        const dropDistance = this.engine.getDropDistance();
+
+        if (dropDistance <= 3) {
+          // Too close to landing - don't recalculate, just accept current position
+          // This prevents erratic last-second movements
+          this.path = [];
+          this.target = { x: piece.x, y: piece.y + dropDistance, rotation: piece.rotation };
+        } else {
+          // Still have room - recalculate path
+          this.calculateTarget(null, this.engine.isPlayerInDangerZone());
+        }
       }
     }
   }

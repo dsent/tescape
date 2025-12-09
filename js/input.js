@@ -5,6 +5,7 @@ window.TE.InputHandler = class InputHandler {
     this.keys = {};
     this.onPause = () => {};
     this.onSabotage = () => {};
+    this.onDumpState = () => {};
 
     window.addEventListener("keydown", (e) => this.handleKeyDown(e));
     window.addEventListener("keyup", (e) => this.handleKeyUp(e));
@@ -26,6 +27,12 @@ window.TE.InputHandler = class InputHandler {
     if (e.code === "KeyS") {
       e.preventDefault();
       this.onSabotage();
+    }
+
+    // Dump State (Debug) - F9 to avoid conflict with D=move right
+    if (e.code === "F9") {
+      e.preventDefault();
+      this.onDumpState();
     }
   }
 

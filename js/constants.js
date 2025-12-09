@@ -4,7 +4,7 @@ window.TE.DEFAULT_CONSTANTS = {
   COLS: 10,
   ROWS: 20,
   GRAVITY: 0.6,
-  JUMP_FORCE: -13.5,
+  JUMP_FORCE: -12.5, // Max jump ~3.6 cells (can't climb 4-cell cliffs)
   MOVE_SPEED: 4,
   TERMINAL_VELOCITY: 15,
   SPAWN_DELAY: 0.3, // seconds
@@ -135,19 +135,20 @@ window.TE.DIFFICULTY_SETTINGS = {
     lineReward: 1, // Don't reward line clears much
     // Holes
     holeReward: -10, // Mild penalty
-    coveredHoleReward: -15, // Higher penalty for covered holes
+    coveredHoleReward: 0, // Extra penalty for blocks above holes
     // Height
     heightReward: 0, // Don't penalize height much
     maxHeightReward: 0, // No penalty for max height
     // Bumpiness: don't punish uneven terrain too much
-    bumpinessReward: -2,
-    // Wells: very high penalty to keep terrain climbable
-    wellReward: -50,
-    // Cliffs: very high penalty
-    cliffReward: -50,
+    bumpinessReward: -1,
+    // Terrain traversability (funnel-based)
+    // Penalty for >=4 height cliffs in valid funnel pattern (scaled by distance from edge)
+    funnelPenaltyBase: -30,
+    // Prohibitive penalty for cliffs that split the field (break funnel pattern)
+    splitPenalty: -1000,
     // Avoiding player
-    dangerZoneMargin: 1.0,
-    dangerZoneReward: -1000,
+    dangerZoneMargin: 0.75,
+    dangerZoneReward: -500,
     dangerZoneDecay: 1.0, // Never decays - always avoids player
     // Can the player complete lines?
     playerCompletesLine: false,
@@ -168,19 +169,18 @@ window.TE.DIFFICULTY_SETTINGS = {
     lineReward: 20,
     // Holes: moderate penalty
     holeReward: -40,
-    coveredHoleReward: -15,
+    coveredHoleReward: 0,
     // Height: slight penalty
     heightReward: -1,
     maxHeightReward: -2,
     // Bumpiness: moderate penalty
-    bumpinessReward: -4,
-    // Wells: high penalty for climbability
-    wellReward: -35,
-    // Cliffs: high penalty
-    cliffReward: -30,
+    bumpinessReward: -5,
+    // Terrain traversability (funnel-based)
+    funnelPenaltyBase: -20,
+    splitPenalty: -500,
     // Avoiding player
-    dangerZoneMargin: 0.8,
-    dangerZoneReward: -500,
+    dangerZoneMargin: 0.5,
+    dangerZoneReward: -250,
     dangerZoneDecay: 0.7, // Moderate decay - stops caring after ~3-4 retargets
     // Can the player complete lines?
     playerCompletesLine: false,
@@ -202,18 +202,17 @@ window.TE.DIFFICULTY_SETTINGS = {
     multiLineBonus: true,
     // Holes: severe penalty
     holeReward: -100,
-    coveredHoleReward: -15,
+    coveredHoleReward: 0,
     // Height: penalize to keep stack low
     heightReward: -4,
     maxHeightReward: -5,
     // Bumpiness: high penalty for flat surface (easier to clear)
-    bumpinessReward: -10,
-    // Wells: moderate penalty (some wells help with Tetrominos)
-    wellReward: -15,
-    // Cliffs: moderate penalty
-    cliffReward: -20,
+    bumpinessReward: -20,
+    // Terrain traversability (funnel-based) - less important on hard
+    funnelPenaltyBase: -10,
+    splitPenalty: -250,
     // Avoiding player
-    dangerZoneMargin: 0.4,
+    dangerZoneMargin: 0.25,
     dangerZoneReward: -75,
     dangerZoneDecay: 0.4, // Aggressive decay - stops caring after ~2 retargets
     // Can the player complete lines?
