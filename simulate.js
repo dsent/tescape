@@ -14,17 +14,11 @@
  *   node simulate.js --state dump.json --step 5
  */
 
-// Minimal DOM shim for Node.js
-global.window = global;
-global.document = { addEventListener: () => {} };
-
-// Load game modules
-require("./js/constants.js");
-require("./js/utils.js");
-require("./js/ai.js");
-require("./js/engine.js");
-
-const fs = require("fs");
+import fs from 'fs';
+import { DEFAULT_CONSTANTS, TETROMINOES, DIFFICULTY_SETTINGS } from './js/constants.js';
+import { getShape, getRandomTetrominoType } from './js/utils.js';
+import { AIController } from './js/ai.js';
+import { GameEngine } from './js/engine.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -56,9 +50,8 @@ for (let i = 0; i < args.length; i++) {
   }
 }
 
-// Patch AIController to add BFS logging
-const OriginalAIController = window.TE.AIController;
-window.TE.AIController = class DebugAIController extends OriginalAIController {
+// Create a debug wrapper for AIController
+class DebugAIController extends AIController {
   calculateTarget(overrideConfig = null, avoidPlayer = false, playerTriggered = false) {
     if (global.TE_DEBUG_AI) {
       this.lastBFSCandidates = [];
@@ -91,7 +84,7 @@ window.TE.AIController = class DebugAIController extends OriginalAIController {
         );
 
         for (const cand of this.lastBFSCandidates) {
-          const shape = window.TE.getShape(pieceType, cand.rotation);
+          const shape = getShape(pieceType, cand.rotation);
           if (!shape) {
             console.error(`No shape for type=${pieceType} rot=${cand.rotation}`);
             cand.inDangerZone = false;
@@ -113,10 +106,19 @@ window.TE.AIController = class DebugAIController extends OriginalAIController {
       super.calculateTarget(overrideConfig, avoidPlayer, playerTriggered);
     }
   }
-};
+}
+
+// Override GameEngine to use DebugAIController
+class DebugGameEngine extends GameEngine {
+  reset() {
+    super.reset();
+    // Replace AI controller with debug version
+    this.ai = new DebugAIController(this);
+  }
+}
 
 function createEngine(godMode = true) {
-  return new window.TE.GameEngine({
+  return new DebugGameEngine({
     width: 350,
     height: 700,
     godMode: godMode,
@@ -187,7 +189,7 @@ class SimulatedPlayer {
     const piece = this.engine.currentPiece;
     if (!target || !piece) return null;
 
-    const shape = window.TE.getShape(piece.type, target.rotation);
+    const shape = getShape(piece.type, target.rotation);
     if (!shape) return null;
 
     return { left: target.x, right: target.x + shape[0].length - 1 };
@@ -1095,7 +1097,7 @@ function printGrid(engine) {
       }
 
       if (target && piece) {
-        const shape = window.TE.getShape(piece.type, target.rotation);
+        const shape = getShape(piece.type, target.rotation);
         const tx = x - target.x;
         const ty = y - target.y;
         if (shape && tx >= 0 && ty >= 0 && ty < shape.length && tx < shape[ty].length && shape[ty][tx]) {
