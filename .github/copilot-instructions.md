@@ -37,6 +37,11 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 - Player physics: gravity, jump force, terminal velocity in `DEFAULT_CONSTANTS`
 - AI uses BFS pathfinding with weighted scoring (holes, height, wells, cliffs, player avoidance)
 
+## Code Style
+
+- Use ES6+ syntax (let/const, arrow functions, classes, template literals)
+- Consistent indentation (2 spaces)
+
 ## Known Issues
 
 - No build system; manual script ordering required in HTML file
@@ -72,8 +77,11 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 - All game state is ephemeral and client-side only
 - Canvas rendering is safe from XSS (no DOM manipulation of user input)
 
-## User Interactions
+## User Chat Interactions
 
-- Be concise
-- Preserve existing code style (2-space indent, semicolons)
-- Avoid adding comments unless they add significant value
+- Be concise in explanations
+- Be sceptical and question your tasks:
+  - Verify against project goals and best practices
+  - Ask clarifying questions if requirements are ambiguous  
+  - Suggest improvements or alternatives when appropriate
+  - Speak up if something seems off
