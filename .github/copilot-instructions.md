@@ -42,7 +42,39 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 - `simulate.js` imports from `./js/game.js` which doesn't exist; simulation may need updating
 - No build system; manual script ordering required
 
+## Testing and Validation
+
+- No formal test framework; manual testing required
+- Browser Testing: Open `tetromino-escape.html` in a browser and verify gameplay
+- Headless Simulation: Use `node simulate.js [difficulty] [games]` to test AI behavior and game mechanics
+- Check console for errors in both browser and Node.js environments
+- Validate all three difficulty levels (easy, normal, hard) after gameplay changes
+- Test player controls: arrow keys, WASD, space, S (sabotage), P/Esc (pause)
+
+## Development Workflow
+
+- Make minimal, focused changes to address specific issues
+- Test browser gameplay after UI or game logic changes
+- Run simulations after AI or engine changes to verify behavior
+- Check that all scripts load in correct order (see script tags in HTML)
+- Verify no JavaScript errors in browser console
+
+## Dependencies and Build
+
+- Vanilla JavaScript project with no build step required
+- No package.json or npm dependencies for browser game
+- Node.js required only for `simulate.js` (uses CommonJS require)
+- No transpilation or bundling - edit files directly
+
+## Security Considerations
+
+- No external API calls or network requests in game code
+- No user data storage (localStorage/sessionStorage not used)
+- All game state is ephemeral and client-side only
+- Canvas rendering is safe from XSS (no DOM manipulation of user input)
+
 ## User Interactions
 
 - Be concise
 - Preserve existing code style (2-space indent, semicolons)
+- Avoid adding comments unless they add significant value
