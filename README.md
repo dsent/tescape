@@ -56,16 +56,19 @@ The simulation outputs statistics such as:
 
 ## 📂 Project Structure
 
+The project uses **ES modules** for better code organization and static analysis:
+
 - `tetromino-escape.html`: Main entry point for the game.
-- `js/constants.js`: Game constants, difficulty settings, and Tetromino definitions.
-- `js/utils.js`: Utility functions for shape handling.
-- `js/ai.js`: AI controller with BFS pathfinding and evaluation logic.
-- `js/engine.js`: Core game logic (GameEngine), physics, and collision detection.
-- `js/renderer.js`: Canvas 2D rendering code.
-- `js/input.js`: Keyboard input handling.
-- `js/main.js`: Browser entry point and UI wiring.
+- `package.json`: Node.js configuration with ES module support.
+- `js/constants.js`: Exports game constants, difficulty settings, and Tetromino definitions.
+- `js/utils.js`: Exports utility functions for shape handling.
+- `js/input.js`: Exports InputHandler class for keyboard input.
+- `js/renderer.js`: Exports GameRenderer class for Canvas 2D rendering.
+- `js/ai.js`: Exports AIController class with BFS pathfinding and evaluation logic.
+- `js/engine.js`: Exports GameEngine class with core game logic, physics, and collision detection.
+- `js/main.js`: Browser entry point that imports and wires up the game.
 - `css/style.css`: Styling for the game interface.
-- `simulate.js`: Node.js script for running headless simulations and AI analysis.
+- `simulate.js`: Node.js ES module script for running headless simulations and AI analysis.
 
 ## 📄 License
 
