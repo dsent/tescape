@@ -1,6 +1,4 @@
-window.TE = window.TE || {};
-
-window.TE.InputHandler = class InputHandler {
+export class InputHandler {
   constructor() {
     this.keys = {};
     this.onPause = () => {};
@@ -43,4 +41,4 @@ window.TE.InputHandler = class InputHandler {
   handleBlur() {
     this.keys = {};
   }
-};
+}

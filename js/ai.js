@@ -1,6 +1,7 @@
-window.TE = window.TE || {};
+import { TETROMINOES } from './constants.js';
+import { getShape } from './utils.js';
 
-window.TE.AIController = class AIController {
+export class AIController {
   constructor(engine) {
     this.engine = engine;
     this.reset();
@@ -161,8 +162,8 @@ window.TE.AIController = class AIController {
     }
 
     if (Math.random() < 0.05) {
-      const newRot = (piece.rotation + 1) % window.TE.TETROMINOES[piece.type].shapes.length;
-      const newShape = window.TE.getShape(piece.type, newRot);
+      const newRot = (piece.rotation + 1) % TETROMINOES[piece.type].shapes.length;
+      const newShape = getShape(piece.type, newRot);
       if (
         this.engine.canPlacePieceWithPlayer(piece, 0, 0, newShape) &&
         this.checkRotationOcclusion(piece.x, piece.y, piece.shape, newShape)
@@ -190,7 +191,7 @@ window.TE.AIController = class AIController {
     let bestScore = -Infinity;
     let bestState = null;
     const diffConfig = overrideConfig || this.engine.settings.diffConfig;
-    const shapes = window.TE.TETROMINOES[this.engine.currentPiece.type].shapes;
+    const shapes = TETROMINOES[this.engine.currentPiece.type].shapes;
 
     // Calculate board urgency (Panic Mode)
     let currentMaxHeight = 0;
@@ -643,7 +644,7 @@ window.TE.AIController = class AIController {
 
       if (piece.rotation !== targetState.rotation) {
         const newRot = targetState.rotation;
-        const newShape = window.TE.getShape(piece.type, newRot);
+        const newShape = getShape(piece.type, newRot);
         if (this.engine.canPlacePieceWithPlayer(piece, 0, 0, newShape)) {
           piece.rotation = newRot;
           piece.shape = newShape;
@@ -673,4 +674,4 @@ window.TE.AIController = class AIController {
       }
     }
   }
-};
+}

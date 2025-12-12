@@ -1,17 +1,19 @@
+import { GameEngine } from './engine.js';
+import { GameRenderer } from './renderer.js';
+import { InputHandler } from './input.js';
+
 document.addEventListener("DOMContentLoaded", () => {
-  // Verify dependencies are loaded
-  if (!window.TE || !window.TE.GameEngine || !window.TE.GameRenderer || !window.TE.InputHandler) {
-    console.error("Critical dependencies failed to load. Check script order.");
-    alert("Game failed to load. Please refresh the page.");
+  const CANVAS = document.getElementById("gameCanvas");
+  if (!CANVAS) {
+    console.error("Canvas element not found. Please ensure the HTML contains an element with id 'gameCanvas'.");
     return;
   }
 
-  const CANVAS = document.getElementById("gameCanvas");
-  const renderer = new window.TE.GameRenderer(CANVAS);
-  const inputHandler = new window.TE.InputHandler();
+  const renderer = new GameRenderer(CANVAS);
+  const inputHandler = new InputHandler();
 
   // Instantiate the engine
-  const game = new window.TE.GameEngine({
+  const game = new GameEngine({
     width: CANVAS.width,
     height: CANVAS.height,
     onGameOver: (reason) => {

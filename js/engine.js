@@ -1,6 +1,8 @@
-window.TE = window.TE || {};
+import { DEFAULT_CONSTANTS, TETROMINOES, DIFFICULTY_SETTINGS } from './constants.js';
+import { getShape, getRandomTetrominoType } from './utils.js';
+import { AIController } from './ai.js';
 
-window.TE.GameEngine = class GameEngine {
+export class GameEngine {
   constructor(config = {}) {
     this.width = config.width || 350;
     this.height = config.height || 700;
@@ -9,7 +11,7 @@ window.TE.GameEngine = class GameEngine {
     this.onLineCleared = config.onLineCleared || (() => {});
 
     // Calculate derived constants
-    this.constants = { ...window.TE.DEFAULT_CONSTANTS };
+    this.constants = { ...DEFAULT_CONSTANTS };
     this.constants.CELL_SIZE = this.height / this.constants.ROWS;
     this.constants.PLAYER_WIDTH = this.constants.CELL_SIZE * this.constants.PLAYER_WIDTH_RATIO;
     this.constants.PLAYER_HEIGHT = this.constants.CELL_SIZE * this.constants.PLAYER_HEIGHT_RATIO;
@@ -58,7 +60,7 @@ window.TE.GameEngine = class GameEngine {
     };
 
     // AI State
-    this.ai = new window.TE.AIController(this);
+    this.ai = new AIController(this);
 
     this.sabotageQueued = false;
 
@@ -67,7 +69,7 @@ window.TE.GameEngine = class GameEngine {
       this.settings = {
         difficulty: "normal",
         speed: 1.0,
-        diffConfig: window.TE.DIFFICULTY_SETTINGS.normal,
+        diffConfig: DIFFICULTY_SETTINGS.normal,
       };
     }
 
@@ -308,8 +310,8 @@ window.TE.GameEngine = class GameEngine {
   }
 
   spawnPiece() {
-    const type = window.TE.getRandomTetrominoType();
-    const tetro = window.TE.TETROMINOES[type];
+    const type = getRandomTetrominoType();
+    const tetro = TETROMINOES[type];
     const rotation = 0;
     const shape = tetro.shapes[rotation];
     const startX = Math.floor((this.constants.COLS - shape[0].length) / 2);
@@ -707,7 +709,7 @@ window.TE.GameEngine = class GameEngine {
       const dangerZone = this.getPlayerDangerZone(this.settings.diffConfig.dangerZoneMargin);
       if (!dangerZone) return false;
       
-      const targetShape = window.TE.getShape(this.currentPiece.type, this.ai.target.rotation);
+      const targetShape = getShape(this.currentPiece.type, this.ai.target.rotation);
       const targetLeft = this.ai.target.x;
       const targetRight = this.ai.target.x + targetShape[0].length;
 
@@ -919,7 +921,7 @@ window.TE.GameEngine = class GameEngine {
 
   applySabotageToCurrent() {
     this.timers.sabotage = this.settings.diffConfig.sabotageDuration * 1000;
-    this.ai.calculateTarget(window.TE.DIFFICULTY_SETTINGS.easy);
+    this.ai.calculateTarget(DIFFICULTY_SETTINGS.easy);
 
     let dropDist = this.getDropDistance();
     if (dropDist > 8) {
@@ -941,8 +943,8 @@ window.TE.GameEngine = class GameEngine {
     }
 
     if (Math.random() < 0.05) {
-      const newRot = (piece.rotation + 1) % window.TE.TETROMINOES[piece.type].shapes.length;
-      const newShape = window.TE.getShape(piece.type, newRot);
+      const newRot = (piece.rotation + 1) % TETROMINOES[piece.type].shapes.length;
+      const newShape = getShape(piece.type, newRot);
       if (this.canPlacePieceWithPlayer(piece, 0, 0, newShape)) {
         piece.rotation = newRot;
         piece.shape = newShape;
@@ -979,7 +981,7 @@ window.TE.GameEngine = class GameEngine {
 
   selectDifficulty(diff) {
     this.settings.difficulty = diff;
-    this.settings.diffConfig = window.TE.DIFFICULTY_SETTINGS[diff];
+    this.settings.diffConfig = DIFFICULTY_SETTINGS[diff];
     if (this.currentPiece && this.status === "playing") this.ai.calculateTarget();
   }
 
@@ -1047,7 +1049,7 @@ window.TE.GameEngine = class GameEngine {
     // Apply settings
     this.settings.difficulty = state.settings.difficulty;
     this.settings.speed = state.settings.speed;
-    this.settings.diffConfig = window.TE.DIFFICULTY_SETTINGS[state.settings.difficulty];
+    this.settings.diffConfig = DIFFICULTY_SETTINGS[state.settings.difficulty];
 
     // Restore grid
     this.grid = state.grid.map((row) => row.map((cell) => cell));
@@ -1068,8 +1070,8 @@ window.TE.GameEngine = class GameEngine {
         x: p.x,
         y: p.y,
         rotation: p.rotation,
-        shape: window.TE.getShape(p.type, p.rotation),
-        color: window.TE.TETROMINOES[p.type].color,
+        shape: getShape(p.type, p.rotation),
+        color: TETROMINOES[p.type].color,
         fallStepCount: p.fallStepCount || 0,
       };
     }
@@ -1092,4 +1094,4 @@ window.TE.GameEngine = class GameEngine {
 
     return true;
   }
-};
+}

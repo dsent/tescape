@@ -1,6 +1,4 @@
-window.TE = window.TE || {};
-
-window.TE.DEFAULT_CONSTANTS = {
+export const DEFAULT_CONSTANTS = {
   COLS: 10,
   ROWS: 20,
   GRAVITY: 0.6,
@@ -39,7 +37,7 @@ window.TE.DEFAULT_CONSTANTS = {
   GROUND_CHECK_DISTANCE: 1, // Pixels below player to check
 };
 
-window.TE.TETROMINOES = {
+export const TETROMINOES = {
   I: { shapes: [[[1, 1, 1, 1]], [[1], [1], [1], [1]]], color: "#00f0f0" },
   O: {
     shapes: [
@@ -149,7 +147,7 @@ window.TE.TETROMINOES = {
   },
 };
 
-window.TE.DIFFICULTY_SETTINGS = {
+export const DIFFICULTY_SETTINGS = {
   easy: {
     // Speed and timing
     baseFallTick: 800,

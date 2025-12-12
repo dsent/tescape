@@ -1,6 +1,7 @@
-window.TE = window.TE || {};
+import { TETROMINOES } from './constants.js';
+import { getShape } from './utils.js';
 
-window.TE.GameRenderer = class GameRenderer {
+export class GameRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
@@ -220,7 +221,7 @@ window.TE.GameRenderer = class GameRenderer {
 
     const { ctx } = this;
     const target = game.ai.target;
-    const shape = window.TE.getShape(game.currentPiece.type, target.rotation);
+    const shape = getShape(game.currentPiece.type, target.rotation);
     const cellSize = game.constants.CELL_SIZE;
 
     // Draw path steps (if any) as small dots
@@ -228,7 +229,7 @@ window.TE.GameRenderer = class GameRenderer {
       ctx.save();
       ctx.fillStyle = "rgba(0, 255, 255, 0.4)";
       for (const step of game.ai.path) {
-        const stepShape = window.TE.getShape(game.currentPiece.type, step.rotation);
+        const stepShape = getShape(game.currentPiece.type, step.rotation);
         for (let y = 0; y < stepShape.length; y++) {
           for (let x = 0; x < stepShape[y].length; x++) {
             if (stepShape[y][x]) {
@@ -288,4 +289,4 @@ window.TE.GameRenderer = class GameRenderer {
 
     ctx.restore();
   }
-};
+}
