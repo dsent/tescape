@@ -37,12 +37,51 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 - Player physics: gravity, jump force, terminal velocity in `DEFAULT_CONSTANTS`
 - AI uses BFS pathfinding with weighted scoring (holes, height, wells, cliffs, player avoidance)
 
+## Code Style
+
+- Use ES6+ syntax (let/const, arrow functions, classes, template literals)
+- Consistent indentation (2 spaces)
+
 ## Known Issues
 
-- `simulate.js` imports from `./js/game.js` which doesn't exist; simulation may need updating
-- No build system; manual script ordering required
+- No build system; manual script ordering required in HTML file
 
-## User Interactions
+## Testing and Validation
 
-- Be concise
-- Preserve existing code style (2-space indent, semicolons)
+- No formal test framework; manual testing required
+- Browser Testing: Open `tetromino-escape.html` in a browser and verify gameplay
+- Headless Simulation: Use `node simulate.js [difficulty] [games]` to test AI behavior and game mechanics
+- Check console for errors in both browser and Node.js environments
+- Validate all three difficulty levels (easy, normal, hard) after gameplay changes
+- Test player controls: arrow keys, WASD, space, S (sabotage), P/Esc (pause)
+
+## Development Workflow
+
+- Make minimal, focused changes to address specific issues
+- Test browser gameplay after UI or game logic changes
+- Run simulations after AI or engine changes to verify behavior
+- Check that all scripts load in correct order (see script tags in HTML)
+- Verify no JavaScript errors in browser console
+
+## Dependencies and Build
+
+- Vanilla JavaScript project with no build step required
+- No package.json or npm dependencies for browser game
+- Node.js required only for `simulate.js` (uses CommonJS require)
+- No transpilation or bundling - edit files directly
+
+## Security Considerations
+
+- No external API calls or network requests in game code
+- No user data storage (localStorage/sessionStorage not used)
+- All game state is ephemeral and client-side only
+- Canvas rendering is safe from XSS (no DOM manipulation of user input)
+
+## User Chat Interactions
+
+- Be concise in explanations
+- Be sceptical and question your tasks:
+  - Verify against project goals and best practices
+  - Ask clarifying questions if requirements are ambiguous  
+  - Suggest improvements or alternatives when appropriate
+  - Speak up if something seems off
