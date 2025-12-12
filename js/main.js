@@ -4,6 +4,11 @@ import { InputHandler } from './input.js';
 
 document.addEventListener("DOMContentLoaded", () => {
   const CANVAS = document.getElementById("gameCanvas");
+  if (!CANVAS) {
+    console.error("Canvas element not found. Please ensure the HTML contains an element with id 'gameCanvas'.");
+    return;
+  }
+
   const renderer = new GameRenderer(CANVAS);
   const inputHandler = new InputHandler();
 
