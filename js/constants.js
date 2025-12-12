@@ -10,6 +10,33 @@ window.TE.DEFAULT_CONSTANTS = {
   SPAWN_DELAY: 0.3, // seconds
   LINE_HISTORY_WINDOW: 10,
   DEBUG_AI: true, // Show AI target and score
+  
+  // Player dimensions as ratio of cell size
+  PLAYER_WIDTH_RATIO: 0.7,
+  PLAYER_HEIGHT_RATIO: 1.5,
+  
+  // Physics thresholds
+  MAX_CLIMBABLE_HEIGHT: 3, // Max rows player can jump up
+  CLIFF_HEIGHT_THRESHOLD: 4, // Height difference that creates a cliff
+  PIECE_LANDING_TOLERANCE: 4, // Pixels tolerance for landing on piece
+  HORIZONTAL_OVERLAP_THRESHOLD: 0.5, // Ratio for horizontal push decision
+  
+  // AI Decision Constants
+  AI_RETARGET_DISTANCE: 4, // Rows from landing before stopping retargets
+  AI_FAST_DROP_HEIGHT: 6, // Minimum height for fast drop check
+  AI_PANIC_HEIGHT: 2, // Rows from top that triggers panic mode
+  AI_WARNING_HEIGHT: 4, // Rows from top for warning state
+  AI_MAX_BFS_ITERATIONS: 4000, // Safety limit for pathfinding
+  
+  // Visual/Particle Constants
+  PARTICLES_PER_BLOCK: 6,
+  PARTICLE_LIFETIME: 1, // seconds
+  PARTICLE_DECAY_RATE: 2, // life reduction per second
+  PARTICLE_VELOCITY_RANGE: 8, // max velocity in any direction
+  
+  // Ground Check Constants
+  GROUND_CHECK_WIDTH_RATIO: 0.5, // Center portion of player to check for ground
+  GROUND_CHECK_DISTANCE: 1, // Pixels below player to check
 };
 
 window.TE.TETROMINOES = {
