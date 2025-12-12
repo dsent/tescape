@@ -13,6 +13,10 @@ window.TE.GameEngine = class GameEngine {
     this.constants.CELL_SIZE = this.height / this.constants.ROWS;
     this.constants.PLAYER_WIDTH = this.constants.CELL_SIZE * this.constants.PLAYER_WIDTH_RATIO;
     this.constants.PLAYER_HEIGHT = this.constants.CELL_SIZE * this.constants.PLAYER_HEIGHT_RATIO;
+    
+    // Pre-calculate ground check dimensions (used frequently in physics loop)
+    this.constants.GROUND_CHECK_WIDTH = this.constants.PLAYER_WIDTH * this.constants.GROUND_CHECK_WIDTH_RATIO;
+    this.constants.GROUND_CHECK_OFFSET = (this.constants.PLAYER_WIDTH - this.constants.GROUND_CHECK_WIDTH) / 2;
 
     // Simulation flags
     this.godMode = config.godMode || false;
@@ -295,13 +299,10 @@ window.TE.GameEngine = class GameEngine {
     // Check for ground beneath player
     // Use a narrower check (centered) to prevent cliff-edge exploitation
     // Player must have solid ground under their center mass, not just a corner pixel
-    const checkWidth = this.constants.PLAYER_WIDTH * this.constants.GROUND_CHECK_WIDTH_RATIO;
-    const checkX = player.x + (this.constants.PLAYER_WIDTH - checkWidth) / 2;
-
     return this.checkCollision(
-      checkX, 
+      player.x + this.constants.GROUND_CHECK_OFFSET, 
       player.y + this.constants.PLAYER_HEIGHT + this.constants.GROUND_CHECK_DISTANCE, 
-      checkWidth, 
+      this.constants.GROUND_CHECK_WIDTH, 
       1
     );
   }
