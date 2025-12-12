@@ -11,8 +11,12 @@ window.TE.GameEngine = class GameEngine {
     // Calculate derived constants
     this.constants = { ...window.TE.DEFAULT_CONSTANTS };
     this.constants.CELL_SIZE = this.height / this.constants.ROWS;
-    this.constants.PLAYER_WIDTH = this.constants.CELL_SIZE * 0.7;
-    this.constants.PLAYER_HEIGHT = this.constants.CELL_SIZE * 1.5;
+    this.constants.PLAYER_WIDTH = this.constants.CELL_SIZE * this.constants.PLAYER_WIDTH_RATIO;
+    this.constants.PLAYER_HEIGHT = this.constants.CELL_SIZE * this.constants.PLAYER_HEIGHT_RATIO;
+    
+    // Pre-calculate ground check dimensions (used frequently in physics loop)
+    this.constants.GROUND_CHECK_WIDTH = this.constants.PLAYER_WIDTH * this.constants.GROUND_CHECK_WIDTH_RATIO;
+    this.constants.GROUND_CHECK_OFFSET = (this.constants.PLAYER_WIDTH - this.constants.GROUND_CHECK_WIDTH) / 2;
 
     // Simulation flags
     this.godMode = config.godMode || false;
@@ -86,6 +90,43 @@ window.TE.GameEngine = class GameEngine {
     };
   }
 
+  /**
+   * Get player's grid column (center position)
+   * @returns {number} Grid column index
+   */
+  getPlayerGridX() {
+    if (!this.player) return -1;
+    const centerX = this.player.x + this.constants.PLAYER_WIDTH / 2;
+    return Math.floor(centerX / this.constants.CELL_SIZE);
+  }
+
+  /**
+   * Get player's danger zone column range
+   * @param {number} margin - Margin in grid cells
+   * @returns {{left: number, right: number}} Column range
+   */
+  getPlayerDangerZone(margin) {
+    if (!this.player) return null;
+    return {
+      left: Math.floor(this.player.x / this.constants.CELL_SIZE - margin),
+      right: Math.ceil((this.player.x + this.constants.PLAYER_WIDTH) / this.constants.CELL_SIZE + margin)
+    };
+  }
+
+  /**
+   * Get player's grid bounds
+   * @returns {{left: number, right: number, top: number, bottom: number}}
+   */
+  getPlayerGridBounds() {
+    if (!this.player) return null;
+    return {
+      left: Math.floor(this.player.x / this.constants.CELL_SIZE),
+      right: Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE),
+      top: Math.floor(this.player.y / this.constants.CELL_SIZE),
+      bottom: Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE)
+    };
+  }
+
   start() {
     this.reset();
     this.initPlayer();
@@ -117,6 +158,11 @@ window.TE.GameEngine = class GameEngine {
     this.updateParticles(dt);
   }
 
+  /**
+   * Update player line clear timer and execute if ready
+   * Only active when playerCompletesLine difficulty setting is enabled
+   * @param {number} dt - Delta time in seconds
+   */
   updatePlayerLineClear(dt) {
     if (!this.settings.diffConfig.playerCompletesLine || !this.player || this.player.dead) return;
 
@@ -134,14 +180,12 @@ window.TE.GameEngine = class GameEngine {
 
   getPlayerCompletingCells() {
     if (!this.player) return [];
-    const pLeft = Math.floor(this.player.x / this.constants.CELL_SIZE);
-    const pRight = Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE);
-    const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
-    const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
+    const bounds = this.getPlayerGridBounds();
+    if (!bounds) return [];
 
     let completingCells = [];
 
-    for (let y = pTop; y <= pBottom; y++) {
+    for (let y = bounds.top; y <= bounds.bottom; y++) {
       if (y < 0 || y >= this.constants.ROWS) continue;
 
       let emptyCount = 0;
@@ -154,7 +198,7 @@ window.TE.GameEngine = class GameEngine {
       }
 
       if (emptyCount === 1) {
-        if (emptyX >= pLeft && emptyX <= pRight) {
+        if (emptyX >= bounds.left && emptyX <= bounds.right) {
           completingCells.push({ x: emptyX, y: y });
         }
       }
@@ -162,6 +206,10 @@ window.TE.GameEngine = class GameEngine {
     return completingCells;
   }
 
+  /**
+   * Update player physics, movement, and check win condition
+   * @param {number} dt - Delta time in seconds
+   */
   updatePlayer(dt) {
     const player = this.player;
     if (!player || player.dead) return;
@@ -251,10 +299,12 @@ window.TE.GameEngine = class GameEngine {
     // Check for ground beneath player
     // Use a narrower check (centered) to prevent cliff-edge exploitation
     // Player must have solid ground under their center mass, not just a corner pixel
-    const checkWidth = this.constants.PLAYER_WIDTH * 0.5; // Only check center 50%
-    const checkX = player.x + (this.constants.PLAYER_WIDTH - checkWidth) / 2;
-
-    return this.checkCollision(checkX, player.y + this.constants.PLAYER_HEIGHT + 1, checkWidth, 1);
+    return this.checkCollision(
+      player.x + this.constants.GROUND_CHECK_OFFSET, 
+      player.y + this.constants.PLAYER_HEIGHT + this.constants.GROUND_CHECK_DISTANCE, 
+      this.constants.GROUND_CHECK_WIDTH, 
+      1
+    );
   }
 
   spawnPiece() {
@@ -364,6 +414,14 @@ window.TE.GameEngine = class GameEngine {
     this.timers.spawn = this.constants.SPAWN_DELAY;
   }
 
+  /**
+   * Check if piece can be placed at the given offset
+   * @param {Object} piece - The piece to check
+   * @param {number} offsetX - Horizontal offset in grid cells
+   * @param {number} offsetY - Vertical offset in grid cells
+   * @param {Array} testShape - Optional shape to test (defaults to piece.shape)
+   * @returns {boolean} True if placement is valid
+   */
   canPlacePiece(piece, offsetX, offsetY, testShape = null) {
     const shape = testShape || piece.shape;
     for (let py = 0; py < shape.length; py++) {
@@ -380,8 +438,15 @@ window.TE.GameEngine = class GameEngine {
     return true;
   }
 
-  // Like canPlacePiece but also checks collision with the player.
-  // Used by AI for horizontal/rotation moves to prevent killing player with side moves.
+  /**
+   * Check if piece can be placed without colliding with grid or player
+   * Used by AI for horizontal/rotation moves to prevent killing player with side moves
+   * @param {Object} piece - The piece to check
+   * @param {number} offsetX - Horizontal offset in grid cells
+   * @param {number} offsetY - Vertical offset in grid cells
+   * @param {Array} testShape - Optional shape to test
+   * @returns {boolean} True if placement is valid
+   */
   canPlacePieceWithPlayer(piece, offsetX, offsetY, testShape = null) {
     if (!this.canPlacePiece(piece, offsetX, offsetY, testShape)) return false;
     if (!this.player) return true;
@@ -417,15 +482,16 @@ window.TE.GameEngine = class GameEngine {
     return true;
   }
 
+  /**
+   * Check if player is currently filling the last gap in any line
+   * @returns {boolean} True if player completes a line
+   */
   checkPlayerCompletesLine() {
     if (!this.player) return false;
+    const bounds = this.getPlayerGridBounds();
+    if (!bounds) return false;
 
-    const pLeft = Math.floor(this.player.x / this.constants.CELL_SIZE);
-    const pRight = Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE);
-    const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
-    const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
-
-    for (let y = pTop; y <= pBottom; y++) {
+    for (let y = bounds.top; y <= bounds.bottom; y++) {
       if (y < 0 || y >= this.constants.ROWS) continue;
 
       let emptyCount = 0;
@@ -439,7 +505,7 @@ window.TE.GameEngine = class GameEngine {
       }
 
       if (emptyCount === 1) {
-        if (emptyX >= pLeft && emptyX <= pRight) {
+        if (emptyX >= bounds.left && emptyX <= bounds.right) {
           return true;
         }
       }
@@ -447,13 +513,14 @@ window.TE.GameEngine = class GameEngine {
     return false;
   }
 
+  /**
+   * Execute line clear that includes the player, killing them
+   * Creates particles and removes completed lines
+   */
   executePlayerLineClear() {
     if (!this.player) return;
-
-    const pLeft = Math.floor(this.player.x / this.constants.CELL_SIZE);
-    const pRight = Math.floor((this.player.x + this.constants.PLAYER_WIDTH - 1) / this.constants.CELL_SIZE);
-    const pTop = Math.floor(this.player.y / this.constants.CELL_SIZE);
-    const pBottom = Math.floor((this.player.y + this.constants.PLAYER_HEIGHT - 1) / this.constants.CELL_SIZE);
+    const bounds = this.getPlayerGridBounds();
+    if (!bounds) return;
 
     let linesToClear = [];
     for (let y = 0; y < this.constants.ROWS; y++) {
@@ -469,7 +536,7 @@ window.TE.GameEngine = class GameEngine {
 
       if (emptyCount === 1) {
         // Check if player covers this gap
-        if (y >= pTop && y <= pBottom && emptyX >= pLeft && emptyX <= pRight) {
+        if (y >= bounds.top && y <= bounds.bottom && emptyX >= bounds.left && emptyX <= bounds.right) {
           linesToClear.push(y);
         }
       }
@@ -517,6 +584,10 @@ window.TE.GameEngine = class GameEngine {
       this.gameOver("You got cleared with the line!");
     }, 500);
   }
+  /**
+   * Check for completed lines and clear them
+   * Note: Player-involved line clears are handled separately by updatePlayerLineClear
+   */
   checkLines() {
     let linesToClear = [];
 
@@ -558,14 +629,20 @@ window.TE.GameEngine = class GameEngine {
     }
   }
 
+  /**
+   * Create particle effect at specified location
+   * @param {number} x - X coordinate in pixels
+   * @param {number} y - Y coordinate in pixels
+   * @param {string} color - Particle color (CSS color string)
+   */
   createParticles(x, y, color) {
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < this.constants.PARTICLES_PER_BLOCK; i++) {
       this.particles.push({
         x: x,
         y: y,
-        vx: (Math.random() - 0.5) * 8,
-        vy: (Math.random() - 0.5) * 8,
-        life: 1,
+        vx: (Math.random() - 0.5) * this.constants.PARTICLE_VELOCITY_RANGE,
+        vy: (Math.random() - 0.5) * this.constants.PARTICLE_VELOCITY_RANGE,
+        life: this.constants.PARTICLE_LIFETIME,
         color: color,
       });
     }
@@ -576,13 +653,17 @@ window.TE.GameEngine = class GameEngine {
       const p = this.particles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.life -= dt * 2;
+      p.life -= dt * this.constants.PARTICLE_DECAY_RATE;
       if (p.life <= 0) this.particles.splice(i, 1);
     }
   }
 
-  // Check if player is horizontally overlapping with piece's danger zone
-  // BUT only if player is at or below piece level (not riding on top)
+  /**
+   * Check if player is horizontally overlapping with piece's danger zone
+   * BUT only if player is at or below piece level (not riding on top)
+   * @param {Object} piece - The piece to check (defaults to current piece)
+   * @returns {boolean}
+   */
   isPlayerInDangerZone(piece = this.currentPiece) {
     if (!piece || !this.player) return false;
 
@@ -591,8 +672,8 @@ window.TE.GameEngine = class GameEngine {
     const pieceBottom = (piece.y + piece.shape.length) * this.constants.CELL_SIZE;
 
     // If player is fully above the piece (riding on top), they're not in danger
-    // Allow a small tolerance (4 pixels) for landing precision
-    if (this.player.y + this.constants.PLAYER_HEIGHT <= pieceBottom + 4) {
+    // Allow a small tolerance for landing precision
+    if (this.player.y + this.constants.PLAYER_HEIGHT <= pieceBottom + this.constants.PIECE_LANDING_TOLERANCE) {
       return false;
     }
 
@@ -604,38 +685,40 @@ window.TE.GameEngine = class GameEngine {
     return pieceLeft < playerRight && pieceRight > playerLeft;
   }
 
+  /**
+   * Determine if AI should recalculate its target
+   * @returns {boolean}
+   */
   shouldRetarget() {
     // Don't retarget if no piece or no player
     if (!this.currentPiece || !this.player) return false;
 
-    // Don't retarget if piece is close to landing (within 4 rows)
+    // Don't retarget if piece is close to landing
     // At this point it's too late to meaningfully change target,
     // and this prevents AI panic when player tries to jump on the piece
     const dropDistance = this.getDropDistance();
-    if (dropDistance <= 4) {
+    if (dropDistance <= this.constants.AI_RETARGET_DISTANCE) {
       return false;
     }
 
     // Check if current target is already safe (outside danger zone)
     // If safe, no need to retarget regardless of player movement
     if (this.ai.target) {
-      const margin = this.settings.diffConfig.dangerZoneMargin;
-      const playerGridLeft = Math.floor(this.player.x / this.constants.CELL_SIZE - margin);
-      const playerGridRight = Math.ceil(
-        (this.player.x + this.constants.PLAYER_WIDTH) / this.constants.CELL_SIZE + margin
-      );
+      const dangerZone = this.getPlayerDangerZone(this.settings.diffConfig.dangerZoneMargin);
+      if (!dangerZone) return false;
+      
       const targetShape = window.TE.getShape(this.currentPiece.type, this.ai.target.rotation);
       const targetLeft = this.ai.target.x;
       const targetRight = this.ai.target.x + targetShape[0].length;
 
       // If target is already outside the danger zone, no need to retarget
-      if (targetRight <= playerGridLeft || targetLeft >= playerGridRight) {
+      if (targetRight <= dangerZone.left || targetLeft >= dangerZone.right) {
         return false;
       }
     }
 
     // Target is in danger zone - check if player moved significantly
-    const currentPlayerGridX = Math.floor(this.player.x / this.constants.CELL_SIZE);
+    const currentPlayerGridX = this.getPlayerGridX();
 
     // If we haven't tracked player position yet, record it and DO retarget
     // (this means the initial calculation picked a dangerous target)
@@ -683,8 +766,12 @@ window.TE.GameEngine = class GameEngine {
     return false;
   }
 
-  checkPieceSquishesPlayer() {
-    if (!this.currentPiece || !this.player) return false;
+  /**
+   * Find the lowest block overlapping with player
+   * @returns {Object|null} Overlap info with block position and overlap amounts
+   */
+  findLowestOverlappingBlock() {
+    if (!this.currentPiece || !this.player) return null;
 
     const piece = this.currentPiece;
     const p = this.player;
@@ -708,10 +795,10 @@ window.TE.GameEngine = class GameEngine {
             p.y + this.constants.PLAYER_HEIGHT > by
           ) {
             // Calculate overlap amounts
-            const overlapLeft = bx + bw - p.x; // How much piece overlaps from left
-            const overlapRight = p.x + this.constants.PLAYER_WIDTH - bx; // From right
-            const overlapTop = by + bh - p.y; // From top
-            const overlapBottom = p.y + this.constants.PLAYER_HEIGHT - by; // From bottom
+            const overlapLeft = bx + bw - p.x;
+            const overlapRight = p.x + this.constants.PLAYER_WIDTH - bx;
+            const overlapTop = by + bh - p.y;
+            const overlapBottom = p.y + this.constants.PLAYER_HEIGHT - by;
 
             if (!overlapInfo || by + bh > lowestBlockBottom) {
               overlapInfo = { bx, by, bw, bh, overlapLeft, overlapRight, overlapTop, overlapBottom };
@@ -722,10 +809,18 @@ window.TE.GameEngine = class GameEngine {
       }
     }
 
-    if (!overlapInfo) return false;
+    return overlapInfo;
+  }
 
-    // First try: push down (existing behavior)
-    const pushY = lowestBlockBottom;
+  /**
+   * Try to push player down below the piece
+   * @param {Object} overlapInfo - Overlap information from findLowestOverlappingBlock
+   * @returns {boolean} True if push was successful
+   */
+  tryPushPlayerDown(overlapInfo) {
+    const p = this.player;
+    const pushY = overlapInfo.by + overlapInfo.bh;
+    
     if (pushY + this.constants.PLAYER_HEIGHT <= this.height) {
       const gridCollision = this.checkGridCollisionOnly(
         p.x,
@@ -737,39 +832,63 @@ window.TE.GameEngine = class GameEngine {
       if (!gridCollision) {
         p.y = pushY;
         p.vy = Math.max(p.vy, 2);
-        return false;
+        return true;
       }
     }
+    return false;
+  }
 
-    // Second try: horizontal push if player is mostly outside the cell
-    // Only push horizontally if the horizontal overlap is less than 50% of player width
+  /**
+   * Try to push player horizontally away from the piece
+   * @param {Object} overlapInfo - Overlap information from findLowestOverlappingBlock
+   * @returns {boolean} True if push was successful
+   */
+  tryPushPlayerHorizontally(overlapInfo) {
+    const p = this.player;
+    
+    // Only push horizontally if the horizontal overlap is less than threshold
     const horizontalOverlap = Math.min(overlapInfo.overlapLeft, overlapInfo.overlapRight);
-    const halfPlayerWidth = this.constants.PLAYER_WIDTH / 2;
+    const thresholdWidth = this.constants.PLAYER_WIDTH * this.constants.HORIZONTAL_OVERLAP_THRESHOLD;
 
-    if (horizontalOverlap < halfPlayerWidth) {
-      // Determine push direction: push away from the block center
-      const blockCenterX = overlapInfo.bx + overlapInfo.bw / 2;
-      const playerCenterX = p.x + this.constants.PLAYER_WIDTH / 2;
+    if (horizontalOverlap >= thresholdWidth) return false;
 
-      let pushX;
-      if (playerCenterX < blockCenterX) {
-        // Player is more to the left, push left
-        pushX = overlapInfo.bx - this.constants.PLAYER_WIDTH;
-      } else {
-        // Player is more to the right, push right
-        pushX = overlapInfo.bx + overlapInfo.bw;
-      }
+    // Determine push direction: push away from the block center
+    const blockCenterX = overlapInfo.bx + overlapInfo.bw / 2;
+    const playerCenterX = p.x + this.constants.PLAYER_WIDTH / 2;
 
-      // Clamp to screen bounds
-      pushX = Math.max(0, Math.min(this.width - this.constants.PLAYER_WIDTH, pushX));
-
-      // Check if we can push there (no grid collision)
-      if (!this.checkGridCollisionOnly(pushX, p.y, this.constants.PLAYER_WIDTH, this.constants.PLAYER_HEIGHT)) {
-        p.x = pushX;
-        return false;
-      }
+    let pushX;
+    if (playerCenterX < blockCenterX) {
+      pushX = overlapInfo.bx - this.constants.PLAYER_WIDTH;
+    } else {
+      pushX = overlapInfo.bx + overlapInfo.bw;
     }
 
+    // Clamp to screen bounds
+    pushX = Math.max(0, Math.min(this.width - this.constants.PLAYER_WIDTH, pushX));
+
+    // Check if we can push there (no grid collision)
+    if (!this.checkGridCollisionOnly(pushX, p.y, this.constants.PLAYER_WIDTH, this.constants.PLAYER_HEIGHT)) {
+      p.x = pushX;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if a falling piece squishes the player and try to push them away
+   * @returns {boolean} True if player is squished (can't be pushed away)
+   */
+  checkPieceSquishesPlayer() {
+    const overlapInfo = this.findLowestOverlappingBlock();
+    if (!overlapInfo) return false;
+
+    // Try pushing down first
+    if (this.tryPushPlayerDown(overlapInfo)) return false;
+
+    // Try pushing horizontally if player is mostly outside the block
+    if (this.tryPushPlayerHorizontally(overlapInfo)) return false;
+
+    // All push attempts failed - player is squished
     return true;
   }
 

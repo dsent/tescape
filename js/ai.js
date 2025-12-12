@@ -19,6 +19,114 @@ window.TE.AIController = class AIController {
     this.lastPlayerGridX = null;
   }
 
+  /**
+   * Calculate funnel validity bounds for terrain traversability
+   * 
+   * FUNNEL PATTERN CONCEPT:
+   * A "funnel" is a terrain shape that slopes from the edges toward the center.
+   * This allows the player to climb from low areas to high areas.
+   * 
+   * Example valid funnel from left:
+   *   Heights: [2, 3, 4, 5, 4, 3, 2, 1, 1, 1]
+   *            ^^^^^^^^^^^^ (ascending from left edge)
+   * 
+   * Example valid funnel from right:
+   *   Heights: [5, 5, 4, 3, 4, 5, 6, 7, 8, 9]
+   *                     ^^^^^^^^^^^^^^^^^^^^^ (ascending from right edge)
+   * 
+   * The bounds tell us how far each funnel extends from its edge.
+   * 
+   * @param {Array<number>} heights - Column heights
+   * @returns {{leftValidUntil: number, rightValidUntil: number}}
+   */
+  calculateFunnelBounds(heights) {
+    const COLS = this.engine.constants.COLS;
+    
+    // Left funnel: heights increase or stay same from left edge
+    let leftFunnelValidUntil = 0;
+    for (let x = 1; x < COLS; x++) {
+      if (heights[x] <= heights[x - 1]) {
+        leftFunnelValidUntil = x;
+      } else {
+        break;
+      }
+    }
+
+    // Right funnel: heights increase or stay same from right edge
+    let rightFunnelValidUntil = COLS - 1;
+    for (let x = COLS - 2; x >= 0; x--) {
+      if (heights[x] <= heights[x + 1]) {
+        rightFunnelValidUntil = x;
+      } else {
+        break;
+      }
+    }
+
+    return { leftFunnelValidUntil, rightFunnelValidUntil };
+  }
+
+  /**
+   * Evaluate terrain penalty based on cliff heights and funnel patterns
+   * @param {Array<number>} heights - Column heights
+   * @param {Object} diffConfig - Difficulty configuration
+   * @param {Object} funnelBounds - Funnel validity bounds
+   * @param {boolean} detailed - Whether to return detailed cliff info
+   * @returns {number|Object} Terrain penalty score or detailed breakdown
+   */
+  evaluateTerrainPenalty(heights, diffConfig, funnelBounds, detailed = false) {
+    const COLS = this.engine.constants.COLS;
+    const MID = Math.floor(COLS / 2);
+    const CLIFF_HEIGHT = this.engine.constants.CLIFF_HEIGHT_THRESHOLD;
+    
+    let terrainPenalty = 0;
+    const cliffs = detailed ? [] : null;
+
+    for (let x = 0; x < COLS - 1; x++) {
+      const heightDiff = Math.abs(heights[x] - heights[x + 1]);
+      if (heightDiff < CLIFF_HEIGHT) continue;
+
+      const higherCol = heights[x] > heights[x + 1] ? x : x + 1;
+      const lowerCol = heights[x] > heights[x + 1] ? x + 1 : x;
+      let isValidFunnel = false;
+
+      if (higherCol <= MID) {
+        if (higherCol < lowerCol && funnelBounds.leftFunnelValidUntil >= lowerCol) {
+          isValidFunnel = true;
+        }
+      } else {
+        if (higherCol > lowerCol && funnelBounds.rightFunnelValidUntil <= lowerCol) {
+          isValidFunnel = true;
+        }
+      }
+
+      const distFromEdge = Math.min(higherCol, COLS - 1 - higherCol);
+      let penalty;
+      if (isValidFunnel) {
+        penalty = diffConfig.funnelPenaltyBase * Math.pow(2, distFromEdge);
+      } else {
+        penalty = diffConfig.splitPenalty;
+      }
+      terrainPenalty += penalty;
+
+      if (cliffs) {
+        cliffs.push({ x, heightDiff, higherCol, isValidFunnel, distFromEdge, penalty });
+      }
+    }
+
+    if (detailed) {
+      return { penalty: terrainPenalty, cliffs };
+    }
+    return terrainPenalty;
+  }
+
+  /**
+   * Check if rotation is possible without collision with locked blocks
+   * @param {number} currentX - Current X position
+   * @param {number} currentY - Current Y position  
+   * @param {Array} currentShape - Current piece shape
+   * @param {Array} nextShape - Next rotation shape
+   * @returns {boolean} True if rotation is possible
+   */
   checkRotationOcclusion(currentX, currentY, currentShape, nextShape) {
     const width = Math.max(currentShape[0].length, nextShape[0].length);
     const height = Math.max(currentShape.length, nextShape.length);
@@ -38,6 +146,10 @@ window.TE.AIController = class AIController {
     return true;
   }
 
+  /**
+   * Execute erratic movement when sabotaged
+   * Randomly moves and rotates the piece
+   */
   performErraticMove() {
     const piece = this.engine.currentPiece;
     if (Math.random() < 0.1) this.erraticDir *= -1;
@@ -61,6 +173,13 @@ window.TE.AIController = class AIController {
     }
   }
 
+  /**
+   * Calculate the best landing position for current piece using BFS pathfinding
+   * Evaluates all reachable positions and selects the one with highest score
+   * @param {Object} overrideConfig - Optional difficulty config override (for sabotage)
+   * @param {boolean} avoidPlayer - Whether to apply danger zone penalties
+   * @param {boolean} playerTriggered - Whether this calculation was triggered by player movement
+   */
   calculateTarget(overrideConfig = null, avoidPlayer = false, playerTriggered = false) {
     if (!this.engine.currentPiece) {
       this.target = null;
@@ -83,16 +202,11 @@ window.TE.AIController = class AIController {
     }
 
     // Avoidance parameters
-    let playerGridLeft = -1;
-    let playerGridRight = -1;
+    let dangerZone = null;
     let dangerZoneReward = diffConfig.dangerZoneReward; // The reward is usually negative
 
     if (avoidPlayer && this.engine.player) {
-      const margin = diffConfig.dangerZoneMargin;
-      playerGridLeft = Math.floor(this.engine.player.x / this.engine.constants.CELL_SIZE - margin);
-      playerGridRight = Math.ceil(
-        (this.engine.player.x + this.engine.constants.PLAYER_WIDTH) / this.engine.constants.CELL_SIZE + margin
-      );
+      dangerZone = this.engine.getPlayerDangerZone(diffConfig.dangerZoneMargin);
 
       // Apply decay based on retarget count
       // Easy (1.0): never decays, Normal (0.7): moderate, Hard (0.4): aggressive
@@ -118,7 +232,7 @@ window.TE.AIController = class AIController {
     const parents = new Map(); // key -> { parentKey, action }
 
     let iterations = 0;
-    const MAX_ITERATIONS = 4000; // Safety limit
+    const MAX_ITERATIONS = this.engine.constants.AI_MAX_BFS_ITERATIONS;
 
     while (queue.length > 0 && iterations < MAX_ITERATIONS) {
       iterations++;
@@ -140,11 +254,11 @@ window.TE.AIController = class AIController {
       if (!canMoveDown) {
         // Evaluate resting spot
         let dzReward = 0;
-        if (avoidPlayer) {
+        if (avoidPlayer && dangerZone) {
           const width = shape[0].length;
           const pieceRight = current.x + width;
           // The piece actually targets the player's grid space
-          if (current.x < playerGridRight && pieceRight > playerGridLeft) {
+          if (current.x < dangerZone.right && pieceRight > dangerZone.left) {
             dzReward = dangerZoneReward;
           }
         }
@@ -174,7 +288,7 @@ window.TE.AIController = class AIController {
 
         const nextShape = shapes[nextRot];
 
-        if (avoidPlayer && (n.action === "left" || n.action === "right" || n.action === "rotate")) {
+        if (avoidPlayer && dangerZone && (n.action === "left" || n.action === "right" || n.action === "rotate")) {
           const width = nextShape[0].length;
           const pieceLeft = nextX;
           const pieceRight = nextX + width;
@@ -183,13 +297,13 @@ window.TE.AIController = class AIController {
           const pieceBottomGrid = nextY + nextShape.length;
 
           if (pieceBottomGrid >= playerYGrid - 2) {
-            const nextInDanger = pieceLeft < playerGridRight && pieceRight > playerGridLeft;
+            const nextInDanger = pieceLeft < dangerZone.right && pieceRight > dangerZone.left;
 
             if (nextInDanger) {
               const curWidth = shape[0].length;
               const curLeft = current.x;
               const curRight = current.x + curWidth;
-              const curInDanger = curLeft < playerGridRight && curRight > playerGridLeft;
+              const curInDanger = curLeft < dangerZone.right && curRight > dangerZone.left;
 
               if (!curInDanger) {
                 continue;
@@ -244,7 +358,7 @@ window.TE.AIController = class AIController {
 
     // Track player position for change detection
     if (this.engine.player) {
-      this.lastPlayerGridX = Math.floor(this.engine.player.x / this.engine.constants.CELL_SIZE);
+      this.lastPlayerGridX = this.engine.getPlayerGridX();
     }
 
     this.path = [];
@@ -265,7 +379,32 @@ window.TE.AIController = class AIController {
     }
   }
 
+  /**
+   * Evaluate a piece placement position
+   * 
+   * SCORING SYSTEM:
+   * The AI uses a weighted scoring system with the following components:
+   * 
+   * 1. Line Clearing: Rewards completing lines (varies by difficulty)
+   * 2. Holes: Penalizes gaps below blocks (harder to clear)
+   * 3. Height: Penalizes tall stacks (risk of game over)
+   * 4. Bumpiness: Penalizes uneven surfaces (harder to place pieces)
+   * 5. Terrain Traversability: Uses "funnel pattern" analysis
+   *    - Valid funnels: Cliffs that slope from edges toward center (player can climb)
+   *    - Split penalties: Cliffs that block player movement across field
+   * 6. Edge Height: Slight bonus for low edges (easier player escape)
+   * 7. Floating Penalty: Discourages placing pieces high without support
+   * 
+   * Difficulty modifies the weight of each component to create different AI behaviors.
+   * 
+   * @param {Object} piece - The piece being evaluated
+   * @param {Array} shape - The piece shape
+   * @param {Object} diffConfig - Difficulty configuration with scoring weights
+   * @param {boolean} detailed - Whether to return detailed breakdown
+   * @returns {number|Object} Score or detailed breakdown object
+   */
   evaluatePosition(piece, shape, diffConfig, detailed = false) {
+    // Create hypothetical grid with piece placed
     let tempGrid = this.engine.grid.map((row) => [...row]);
 
     for (let y = 0; y < shape.length; y++) {
@@ -282,7 +421,7 @@ window.TE.AIController = class AIController {
     const COLS = this.engine.constants.COLS;
     const MID = Math.floor(COLS / 2);
 
-    // Line clearing
+    // Line clearing: Count and reward completed lines
     let completedLines = 0;
     for (let y = 0; y < this.engine.constants.ROWS; y++) {
       if (tempGrid[y].every((c) => c)) completedLines++;
@@ -332,59 +471,11 @@ window.TE.AIController = class AIController {
     let bumpiness = 0;
     for (let x = 0; x < COLS - 1; x++) bumpiness += Math.abs(heights[x] - heights[x + 1]);
 
-    // Funnel-based terrain traversability check
-    let leftFunnelValidUntil = 0;
-    for (let x = 1; x < COLS; x++) {
-      if (heights[x] <= heights[x - 1]) {
-        leftFunnelValidUntil = x;
-      } else {
-        break;
-      }
-    }
-
-    let rightFunnelValidUntil = COLS - 1;
-    for (let x = COLS - 2; x >= 0; x--) {
-      if (heights[x] <= heights[x + 1]) {
-        rightFunnelValidUntil = x;
-      } else {
-        break;
-      }
-    }
-
-    let terrainPenalty = 0;
-    const cliffs = detailed ? [] : null;
-
-    for (let x = 0; x < COLS - 1; x++) {
-      const heightDiff = Math.abs(heights[x] - heights[x + 1]);
-      if (heightDiff < 4) continue;
-
-      const higherCol = heights[x] > heights[x + 1] ? x : x + 1;
-      const lowerCol = heights[x] > heights[x + 1] ? x + 1 : x;
-      let isValidFunnel = false;
-
-      if (higherCol <= MID) {
-        if (higherCol < lowerCol && leftFunnelValidUntil >= lowerCol) {
-          isValidFunnel = true;
-        }
-      } else {
-        if (higherCol > lowerCol && rightFunnelValidUntil <= lowerCol) {
-          isValidFunnel = true;
-        }
-      }
-
-      const distFromEdge = Math.min(higherCol, COLS - 1 - higherCol);
-      let penalty;
-      if (isValidFunnel) {
-        penalty = diff.funnelPenaltyBase * Math.pow(2, distFromEdge);
-      } else {
-        penalty = diff.splitPenalty;
-      }
-      terrainPenalty += penalty;
-
-      if (cliffs) {
-        cliffs.push({ x, heightDiff, higherCol, isValidFunnel, distFromEdge, penalty });
-      }
-    }
+    // Terrain traversability analysis
+    const funnelBounds = this.calculateFunnelBounds(heights);
+    const terrainResult = this.evaluateTerrainPenalty(heights, diff, funnelBounds, detailed);
+    const terrainPenalty = detailed ? terrainResult.penalty : terrainResult;
+    const cliffs = detailed ? terrainResult.cliffs : null;
 
     // Calculate individual score components
     const holesScore = holes * diff.holeReward;
@@ -394,9 +485,9 @@ window.TE.AIController = class AIController {
     const maxHeightScore = maxBoardHeight * diff.maxHeightReward;
 
     let dangerScore = 0;
-    if (maxBoardHeight >= this.engine.constants.ROWS - 2) {
+    if (maxBoardHeight >= this.engine.constants.ROWS - this.engine.constants.AI_PANIC_HEIGHT) {
       dangerScore = -100000;
-    } else if (maxBoardHeight >= this.engine.constants.ROWS - 4) {
+    } else if (maxBoardHeight >= this.engine.constants.ROWS - this.engine.constants.AI_WARNING_HEIGHT) {
       dangerScore = -20000;
     }
 
@@ -447,20 +538,24 @@ window.TE.AIController = class AIController {
       rawCoveredHoles: coveredHoles,
       rawBumpiness: bumpiness,
       funnelInfo: {
-        leftValid: leftFunnelValidUntil,
-        rightValid: rightFunnelValidUntil,
+        leftValid: funnelBounds.leftFunnelValidUntil,
+        rightValid: funnelBounds.rightFunnelValidUntil,
         cliffs: cliffs || [],
       },
     };
   }
 
+  /**
+   * Update AI state and execute moves toward target
+   * Handles erratic movement during sabotage and pathfinding execution
+   */
   update() {
     if (!this.engine.currentPiece) return;
     this.moveCount++;
 
     if (this.engine.timers.sabotage > 0 && this.state === "erratic") {
       this.performErraticMove();
-      if (this.engine.getDropDistance() < 6) {
+      if (this.engine.getDropDistance() < this.engine.constants.AI_FAST_DROP_HEIGHT) {
         this.state = "targeting";
       }
       return;
