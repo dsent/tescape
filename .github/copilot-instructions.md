@@ -31,7 +31,7 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 ## Rules
 
 - All JS modules attach to `window.TE` namespace; maintain this pattern
-- Script load order matters: `constants.js` → `utils.js` → `ai.js` → `engine.js` → `renderer.js` → `input.js` → `main.js`
+- Script load order matters: `constants.js` → `utils.js` → `input.js` → `renderer.js` → `ai.js` → `engine.js` → `main.js`
 - Grid is 10 cols × 20 rows; `CELL_SIZE` derived from canvas height
 - Difficulty settings in `constants.js` control AI behavior, not just speed
 - Player physics: gravity, jump force, terminal velocity in `DEFAULT_CONSTANTS`
@@ -41,6 +41,9 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 
 - Use ES6+ syntax (let/const, arrow functions, classes, template literals)
 - Consistent indentation (2 spaces)
+- Meaningful variable/function names; document functions with JSDoc
+- Modular functions, single responsibility principle
+- Comment complex logic; avoid commenting self-explanatory code
 
 ## Known Issues
 
