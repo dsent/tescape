@@ -39,8 +39,7 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 
 ## Known Issues
 
-- `simulate.js` imports from `./js/game.js` which doesn't exist; simulation may need updating
-- No build system; manual script ordering required
+- No build system; manual script ordering required in HTML file
 
 ## Testing and Validation
 
