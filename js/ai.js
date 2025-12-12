@@ -21,12 +21,28 @@ window.TE.AIController = class AIController {
 
   /**
    * Calculate funnel validity bounds for terrain traversability
+   * 
+   * FUNNEL PATTERN CONCEPT:
+   * A "funnel" is a terrain shape that slopes from the edges toward the center.
+   * This allows the player to climb from low areas to high areas.
+   * 
+   * Example valid funnel from left:
+   *   Heights: [2, 3, 4, 5, 4, 3, 2, 1, 1, 1]
+   *            ^^^^^^^^^^^^ (ascending from left edge)
+   * 
+   * Example valid funnel from right:
+   *   Heights: [5, 5, 4, 3, 4, 5, 6, 7, 8, 9]
+   *                     ^^^^^^^^^^^^^^^^^^^^^ (ascending from right edge)
+   * 
+   * The bounds tell us how far each funnel extends from its edge.
+   * 
    * @param {Array<number>} heights - Column heights
    * @returns {{leftValidUntil: number, rightValidUntil: number}}
    */
   calculateFunnelBounds(heights) {
     const COLS = this.engine.constants.COLS;
     
+    // Left funnel: heights increase or stay same from left edge
     let leftFunnelValidUntil = 0;
     for (let x = 1; x < COLS; x++) {
       if (heights[x] <= heights[x - 1]) {
@@ -36,6 +52,7 @@ window.TE.AIController = class AIController {
       }
     }
 
+    // Right funnel: heights increase or stay same from right edge
     let rightFunnelValidUntil = COLS - 1;
     for (let x = COLS - 2; x >= 0; x--) {
       if (heights[x] <= heights[x + 1]) {
@@ -102,6 +119,14 @@ window.TE.AIController = class AIController {
     return terrainPenalty;
   }
 
+  /**
+   * Check if rotation is possible without collision with locked blocks
+   * @param {number} currentX - Current X position
+   * @param {number} currentY - Current Y position  
+   * @param {Array} currentShape - Current piece shape
+   * @param {Array} nextShape - Next rotation shape
+   * @returns {boolean} True if rotation is possible
+   */
   checkRotationOcclusion(currentX, currentY, currentShape, nextShape) {
     const width = Math.max(currentShape[0].length, nextShape[0].length);
     const height = Math.max(currentShape.length, nextShape.length);
@@ -121,6 +146,10 @@ window.TE.AIController = class AIController {
     return true;
   }
 
+  /**
+   * Execute erratic movement when sabotaged
+   * Randomly moves and rotates the piece
+   */
   performErraticMove() {
     const piece = this.engine.currentPiece;
     if (Math.random() < 0.1) this.erraticDir *= -1;
@@ -144,6 +173,13 @@ window.TE.AIController = class AIController {
     }
   }
 
+  /**
+   * Calculate the best landing position for current piece using BFS pathfinding
+   * Evaluates all reachable positions and selects the one with highest score
+   * @param {Object} overrideConfig - Optional difficulty config override (for sabotage)
+   * @param {boolean} avoidPlayer - Whether to apply danger zone penalties
+   * @param {boolean} playerTriggered - Whether this calculation was triggered by player movement
+   */
   calculateTarget(overrideConfig = null, avoidPlayer = false, playerTriggered = false) {
     if (!this.engine.currentPiece) {
       this.target = null;
@@ -343,7 +379,32 @@ window.TE.AIController = class AIController {
     }
   }
 
+  /**
+   * Evaluate a piece placement position
+   * 
+   * SCORING SYSTEM:
+   * The AI uses a weighted scoring system with the following components:
+   * 
+   * 1. Line Clearing: Rewards completing lines (varies by difficulty)
+   * 2. Holes: Penalizes gaps below blocks (harder to clear)
+   * 3. Height: Penalizes tall stacks (risk of game over)
+   * 4. Bumpiness: Penalizes uneven surfaces (harder to place pieces)
+   * 5. Terrain Traversability: Uses "funnel pattern" analysis
+   *    - Valid funnels: Cliffs that slope from edges toward center (player can climb)
+   *    - Split penalties: Cliffs that block player movement across field
+   * 6. Edge Height: Slight bonus for low edges (easier player escape)
+   * 7. Floating Penalty: Discourages placing pieces high without support
+   * 
+   * Difficulty modifies the weight of each component to create different AI behaviors.
+   * 
+   * @param {Object} piece - The piece being evaluated
+   * @param {Array} shape - The piece shape
+   * @param {Object} diffConfig - Difficulty configuration with scoring weights
+   * @param {boolean} detailed - Whether to return detailed breakdown
+   * @returns {number|Object} Score or detailed breakdown object
+   */
   evaluatePosition(piece, shape, diffConfig, detailed = false) {
+    // Create hypothetical grid with piece placed
     let tempGrid = this.engine.grid.map((row) => [...row]);
 
     for (let y = 0; y < shape.length; y++) {
@@ -360,7 +421,7 @@ window.TE.AIController = class AIController {
     const COLS = this.engine.constants.COLS;
     const MID = Math.floor(COLS / 2);
 
-    // Line clearing
+    // Line clearing: Count and reward completed lines
     let completedLines = 0;
     for (let y = 0; y < this.engine.constants.ROWS; y++) {
       if (tempGrid[y].every((c) => c)) completedLines++;
@@ -484,6 +545,10 @@ window.TE.AIController = class AIController {
     };
   }
 
+  /**
+   * Update AI state and execute moves toward target
+   * Handles erratic movement during sabotage and pathfinding execution
+   */
   update() {
     if (!this.engine.currentPiece) return;
     this.moveCount++;

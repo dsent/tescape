@@ -154,6 +154,11 @@ window.TE.GameEngine = class GameEngine {
     this.updateParticles(dt);
   }
 
+  /**
+   * Update player line clear timer and execute if ready
+   * Only active when playerCompletesLine difficulty setting is enabled
+   * @param {number} dt - Delta time in seconds
+   */
   updatePlayerLineClear(dt) {
     if (!this.settings.diffConfig.playerCompletesLine || !this.player || this.player.dead) return;
 
@@ -197,6 +202,10 @@ window.TE.GameEngine = class GameEngine {
     return completingCells;
   }
 
+  /**
+   * Update player physics, movement, and check win condition
+   * @param {number} dt - Delta time in seconds
+   */
   updatePlayer(dt) {
     const player = this.player;
     if (!player || player.dead) return;
@@ -404,6 +413,14 @@ window.TE.GameEngine = class GameEngine {
     this.timers.spawn = this.constants.SPAWN_DELAY;
   }
 
+  /**
+   * Check if piece can be placed at the given offset
+   * @param {Object} piece - The piece to check
+   * @param {number} offsetX - Horizontal offset in grid cells
+   * @param {number} offsetY - Vertical offset in grid cells
+   * @param {Array} testShape - Optional shape to test (defaults to piece.shape)
+   * @returns {boolean} True if placement is valid
+   */
   canPlacePiece(piece, offsetX, offsetY, testShape = null) {
     const shape = testShape || piece.shape;
     for (let py = 0; py < shape.length; py++) {
@@ -420,8 +437,15 @@ window.TE.GameEngine = class GameEngine {
     return true;
   }
 
-  // Like canPlacePiece but also checks collision with the player.
-  // Used by AI for horizontal/rotation moves to prevent killing player with side moves.
+  /**
+   * Check if piece can be placed without colliding with grid or player
+   * Used by AI for horizontal/rotation moves to prevent killing player with side moves
+   * @param {Object} piece - The piece to check
+   * @param {number} offsetX - Horizontal offset in grid cells
+   * @param {number} offsetY - Vertical offset in grid cells
+   * @param {Array} testShape - Optional shape to test
+   * @returns {boolean} True if placement is valid
+   */
   canPlacePieceWithPlayer(piece, offsetX, offsetY, testShape = null) {
     if (!this.canPlacePiece(piece, offsetX, offsetY, testShape)) return false;
     if (!this.player) return true;
@@ -457,6 +481,10 @@ window.TE.GameEngine = class GameEngine {
     return true;
   }
 
+  /**
+   * Check if player is currently filling the last gap in any line
+   * @returns {boolean} True if player completes a line
+   */
   checkPlayerCompletesLine() {
     if (!this.player) return false;
     const bounds = this.getPlayerGridBounds();
@@ -484,6 +512,10 @@ window.TE.GameEngine = class GameEngine {
     return false;
   }
 
+  /**
+   * Execute line clear that includes the player, killing them
+   * Creates particles and removes completed lines
+   */
   executePlayerLineClear() {
     if (!this.player) return;
     const bounds = this.getPlayerGridBounds();
@@ -551,6 +583,10 @@ window.TE.GameEngine = class GameEngine {
       this.gameOver("You got cleared with the line!");
     }, 500);
   }
+  /**
+   * Check for completed lines and clear them
+   * Note: Player-involved line clears are handled separately by updatePlayerLineClear
+   */
   checkLines() {
     let linesToClear = [];
 
@@ -592,6 +628,12 @@ window.TE.GameEngine = class GameEngine {
     }
   }
 
+  /**
+   * Create particle effect at specified location
+   * @param {number} x - X coordinate in pixels
+   * @param {number} y - Y coordinate in pixels
+   * @param {string} color - Particle color (CSS color string)
+   */
   createParticles(x, y, color) {
     for (let i = 0; i < this.constants.PARTICLES_PER_BLOCK; i++) {
       this.particles.push({
