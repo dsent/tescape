@@ -265,7 +265,7 @@ window.TE.AIController = class AIController {
     }
   }
 
-  evaluatePosition(piece, shape, diffConfig) {
+  evaluatePosition(piece, shape, diffConfig, detailed = false) {
     let tempGrid = this.engine.grid.map((row) => [...row]);
 
     for (let y = 0; y < shape.length; y++) {
@@ -278,25 +278,29 @@ window.TE.AIController = class AIController {
       }
     }
 
-    let score = 0;
     const diff = diffConfig;
+    const COLS = this.engine.constants.COLS;
+    const MID = Math.floor(COLS / 2);
 
+    // Line clearing
     let completedLines = 0;
     for (let y = 0; y < this.engine.constants.ROWS; y++) {
       if (tempGrid[y].every((c) => c)) completedLines++;
     }
-    score += completedLines * diff.lineReward;
+    let linesScore = completedLines * diff.lineReward;
+    let multiLineBonus = 0;
     if (completedLines > 0 && diff.multiLineBonus) {
-      if (completedLines >= 4) score += 150;
-      else if (completedLines >= 2) score += 50;
+      if (completedLines >= 4) multiLineBonus = 150;
+      else if (completedLines >= 2) multiLineBonus = 50;
     }
 
+    // Grid after line clears
     let gridAfter = tempGrid.filter((row) => !row.every((c) => c));
-    while (gridAfter.length < this.engine.constants.ROWS)
-      gridAfter.unshift(Array(this.engine.constants.COLS).fill(null));
+    while (gridAfter.length < this.engine.constants.ROWS) gridAfter.unshift(Array(COLS).fill(null));
 
+    // Column heights
     const heights = [];
-    for (let x = 0; x < this.engine.constants.COLS; x++) {
+    for (let x = 0; x < COLS; x++) {
       let h = 0;
       for (let y = 0; y < this.engine.constants.ROWS; y++) {
         if (gridAfter[y][x]) {
@@ -307,9 +311,10 @@ window.TE.AIController = class AIController {
       heights.push(h);
     }
 
+    // Holes and covered holes
     let holes = 0,
       coveredHoles = 0;
-    for (let x = 0; x < this.engine.constants.COLS; x++) {
+    for (let x = 0; x < COLS; x++) {
       let blockFound = false;
       let blocksAbove = 0;
       for (let y = 0; y < this.engine.constants.ROWS; y++) {
@@ -323,23 +328,17 @@ window.TE.AIController = class AIController {
       }
     }
 
+    // Bumpiness
     let bumpiness = 0;
-    for (let x = 0; x < this.engine.constants.COLS - 1; x++) bumpiness += Math.abs(heights[x] - heights[x + 1]);
+    for (let x = 0; x < COLS - 1; x++) bumpiness += Math.abs(heights[x] - heights[x + 1]);
 
     // Funnel-based terrain traversability check
-    // A valid funnel has heights monotonically decreasing from edges toward center
-    const COLS = this.engine.constants.COLS;
-    const MID = Math.floor(COLS / 2); // 5 for 10-column grid
-
-    // Check funnel validity from each edge
-    // leftFunnelValidUntil: rightmost column index where left funnel is still valid
-    // rightFunnelValidUntil: leftmost column index where right funnel is still valid
     let leftFunnelValidUntil = 0;
     for (let x = 1; x < COLS; x++) {
       if (heights[x] <= heights[x - 1]) {
         leftFunnelValidUntil = x;
       } else {
-        break; // Funnel broken
+        break;
       }
     }
 
@@ -348,76 +347,111 @@ window.TE.AIController = class AIController {
       if (heights[x] <= heights[x + 1]) {
         rightFunnelValidUntil = x;
       } else {
-        break; // Funnel broken
+        break;
       }
     }
 
     let terrainPenalty = 0;
+    const cliffs = detailed ? [] : null;
 
-    // Check each adjacent pair for unclimbable cliffs (>=4 height difference)
     for (let x = 0; x < COLS - 1; x++) {
       const heightDiff = Math.abs(heights[x] - heights[x + 1]);
-      if (heightDiff < 4) continue; // Climbable, no penalty
+      if (heightDiff < 4) continue;
 
-      // Determine which column is higher
       const higherCol = heights[x] > heights[x + 1] ? x : x + 1;
       const lowerCol = heights[x] > heights[x + 1] ? x + 1 : x;
-
-      // Check if this cliff is in a valid funnel pattern:
-      // The higher column should be on the "outer" side (toward edge)
-      // and the funnel should be intact up to that point
       let isValidFunnel = false;
 
       if (higherCol <= MID) {
-        // Left side of board: higher column should be more toward left (outer)
-        // and left funnel should be valid up to the lower column
         if (higherCol < lowerCol && leftFunnelValidUntil >= lowerCol) {
           isValidFunnel = true;
         }
       } else {
-        // Right side of board: higher column should be more toward right (outer)
-        // and right funnel should be valid up to the lower column
         if (higherCol > lowerCol && rightFunnelValidUntil <= lowerCol) {
           isValidFunnel = true;
         }
       }
 
+      const distFromEdge = Math.min(higherCol, COLS - 1 - higherCol);
+      let penalty;
       if (isValidFunnel) {
-        // Valid funnel cliff: scaled penalty based on distance from edge
-        // Edges (cols 0,9) = no penalty, inner columns = increasing penalty
-        const distFromEdge = Math.min(higherCol, COLS - 1 - higherCol);
-        // distFromEdge: 0 for edges, 1 for cols 1/8, 2 for cols 2/7, etc.
-        // Use exponential scaling: 2^distFromEdge
-        const scaledPenalty = diff.funnelPenaltyBase * Math.pow(2, distFromEdge);
-        terrainPenalty += scaledPenalty;
+        penalty = diff.funnelPenaltyBase * Math.pow(2, distFromEdge);
       } else {
-        // Broken funnel: this cliff splits the playing field
-        terrainPenalty += diff.splitPenalty;
+        penalty = diff.splitPenalty;
+      }
+      terrainPenalty += penalty;
+
+      if (cliffs) {
+        cliffs.push({ x, heightDiff, higherCol, isValidFunnel, distFromEdge, penalty });
       }
     }
 
-    score += holes * diff.holeReward;
-    score += coveredHoles * diff.coveredHoleReward;
-    score += heights.reduce((a, b) => a + b, 0) * diff.heightReward;
-    score += Math.max(...heights) * diff.maxHeightReward;
-
+    // Calculate individual score components
+    const holesScore = holes * diff.holeReward;
+    const coveredHolesScore = coveredHoles * diff.coveredHoleReward;
+    const heightScore = heights.reduce((a, b) => a + b, 0) * diff.heightReward;
     const maxBoardHeight = Math.max(...heights);
+    const maxHeightScore = maxBoardHeight * diff.maxHeightReward;
+
+    let dangerScore = 0;
     if (maxBoardHeight >= this.engine.constants.ROWS - 2) {
-      score -= 100000;
+      dangerScore = -100000;
     } else if (maxBoardHeight >= this.engine.constants.ROWS - 4) {
-      score -= 20000;
+      dangerScore = -20000;
     }
 
-    score += bumpiness * diff.bumpinessReward;
-    score += terrainPenalty;
+    const bumpinessScore = bumpiness * diff.bumpinessReward;
 
-    const minEdge = Math.min(heights[0], heights[this.engine.constants.COLS - 1]);
-    score += (10 - minEdge) * 3;
+    const minEdge = Math.min(heights[0], heights[COLS - 1]);
+    const edgeScore = (10 - minEdge) * 3;
 
     const pieceBottom = piece.y + piece.shape.length;
-    if (pieceBottom < 4) score -= (4 - pieceBottom) * 30;
+    const floatingScore = pieceBottom < 4 ? -(4 - pieceBottom) * 30 : 0;
 
-    return score;
+    // Sum all components
+    const total =
+      linesScore +
+      multiLineBonus +
+      holesScore +
+      coveredHolesScore +
+      heightScore +
+      maxHeightScore +
+      dangerScore +
+      bumpinessScore +
+      terrainPenalty +
+      edgeScore +
+      floatingScore;
+
+    if (!detailed) {
+      return total;
+    }
+
+    // Return detailed breakdown
+    return {
+      lines: linesScore,
+      multiLineBonus,
+      holes: holesScore,
+      coveredHoles: coveredHolesScore,
+      height: heightScore,
+      maxHeight: maxHeightScore,
+      danger: dangerScore,
+      bumpiness: bumpinessScore,
+      terrain: terrainPenalty,
+      edge: edgeScore,
+      floating: floatingScore,
+      total,
+      // Raw values for analysis
+      heights,
+      rawLines: completedLines,
+      rawHoles: holes,
+      rawCoveredHoles: coveredHoles,
+      rawBumpiness: bumpiness,
+      funnelInfo: {
+        leftValid: leftFunnelValidUntil,
+        rightValid: rightFunnelValidUntil,
+        cliffs: cliffs || [],
+      },
+    };
   }
 
   update() {
