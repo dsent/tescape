@@ -4,7 +4,21 @@
 
 ## 🎮 How to Play
 
-Open `tetromino-escape.html` in your web browser to start playing.
+Due to ES module CORS restrictions, you need to serve the game via HTTP. You can:
+
+**Option 1: Use Python's built-in server**
+```bash
+python3 -m http.server 8080
+# Then open http://localhost:8080/tetromino-escape.html in your browser
+```
+
+**Option 2: Use Node.js http-server**
+```bash
+npx http-server -p 8080
+# Then open http://localhost:8080/tetromino-escape.html in your browser
+```
+
+**Option 3: Use any other local web server** (VS Code Live Server, etc.)
 
 ### Controls
 

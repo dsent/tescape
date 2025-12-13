@@ -26,7 +26,8 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 
 ## Tools and Commands
 
-- Run Game: Open `tetromino-escape.html` in browser
+- Run Game: Serve via HTTP (e.g., `python3 -m http.server 8080`) then open `http://localhost:8080/tetromino-escape.html`
+  - ES modules require HTTP/HTTPS protocol (won't work with `file://`)
 - Simulate: `node simulate.js [difficulty] [games]` (e.g., `node simulate.js hard 100`)
 
 ## Rules
