@@ -1,0 +1,13 @@
+{
+  "name": "tetromino-escape",
+  "version": "1.0.0",
+  "description": "Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb debris, escape the well.",
+  "type": "module",
+  "main": "js/main.js",
+  "scripts": {
+    "simulate": "node simulate.js"
+  },
+  "keywords": ["game", "tetromino", "tetris", "survival", "browser"],
+  "author": "",
+  "license": "MIT"
+}

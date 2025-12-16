@@ -1,15 +1,15 @@
-window.TE = window.TE || {};
+import { TETROMINOES } from './constants.js';
 
 /**
  * Helper Functions
  */
 
-window.TE.getShape = function (type, rotation) {
-  const shapes = window.TE.TETROMINOES[type].shapes;
+export function getShape(type, rotation) {
+  const shapes = TETROMINOES[type].shapes;
   return shapes[rotation % shapes.length];
-};
+}
 
-window.TE.getRandomTetrominoType = function () {
-  const types = Object.keys(window.TE.TETROMINOES);
+export function getRandomTetrominoType() {
+  const types = Object.keys(TETROMINOES);
   return types[Math.floor(Math.random() * types.length)];
-};
+}

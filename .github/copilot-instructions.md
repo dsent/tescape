@@ -11,27 +11,29 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 
 ## Repo Structure
 
-- `/js/` - Game modules (all use `window.TE` namespace)
-  - `constants.js` - Config, tetromino shapes, difficulty settings
-  - `engine.js` - Core game loop, physics, collision, line clearing
-  - `ai.js` - AIController with BFS pathfinding and difficulty-based targeting
-  - `renderer.js` - Canvas 2D drawing
-  - `input.js` - Keyboard input handling
-  - `utils.js` - Helper functions
-  - `main.js` - Browser entry point, UI wiring
+- `/js/` - Game modules (ES modules with named exports)
+  - `constants.js` - Exports DEFAULT_CONSTANTS, TETROMINOES, and DIFFICULTY_SETTINGS
+  - `utils.js` - Exports getShape and getRandomTetrominoType utility functions
+  - `input.js` - Exports InputHandler class
+  - `renderer.js` - Exports GameRenderer class
+  - `ai.js` - Exports AIController class with BFS pathfinding and difficulty-based targeting
+  - `engine.js` - Exports GameEngine class with core game loop, physics, collision, line clearing
+  - `main.js` - Browser entry point, imports and wires up the game
 - `/css/style.css` - Game styling and overlays
-- `tetromino-escape.html` - Main entry point (loads scripts in order)
-- `simulate.js` - Node.js headless simulation script
+- `tetromino-escape.html` - Main entry point (loads main.js as ES module)
+- `simulate.js` - Node.js headless simulation script (ES module)
+- `package.json` - Node.js package configuration with type:"module"
 
 ## Tools and Commands
 
-- Run Game: Open `tetromino-escape.html` in browser
+- Run Game: Serve via HTTP (e.g., `python3 -m http.server 8080`) then open `http://localhost:8080/tetromino-escape.html`
+  - ES modules require HTTP/HTTPS protocol (won't work with `file://`)
 - Simulate: `node simulate.js [difficulty] [games]` (e.g., `node simulate.js hard 100`)
 
 ## Rules
 
-- All JS modules attach to `window.TE` namespace; maintain this pattern
-- Script load order matters: `constants.js` → `utils.js` → `input.js` → `renderer.js` → `ai.js` → `engine.js` → `main.js`
+- All JS modules use ES module syntax (import/export)
+- Module dependencies are resolved through explicit imports
 - Grid is 10 cols × 20 rows; `CELL_SIZE` derived from canvas height
 - Difficulty settings in `constants.js` control AI behavior, not just speed
 - Player physics: gravity, jump force, terminal velocity in `DEFAULT_CONSTANTS`
@@ -45,9 +47,12 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 - Modular functions, single responsibility principle
 - Comment complex logic; avoid commenting self-explanatory code
 
-## Known Issues
+## Module System
 
-- No build system; manual script ordering required in HTML file
+- Project uses ES modules (import/export) for better static analysis and IDE support
+- Browser: All modules loaded via single `<script type="module">` tag in HTML
+- Node.js: package.json has `"type": "module"` to enable ES modules
+- No build step required; browsers and Node.js natively support ES modules
 
 ## Testing and Validation
 
@@ -69,8 +74,9 @@ Browser-based survival game: dodge AI-controlled falling Tetromino blocks, climb
 ## Dependencies and Build
 
 - Vanilla JavaScript project with no build step required
-- No package.json or npm dependencies for browser game
-- Node.js required only for `simulate.js` (uses CommonJS require)
+- package.json defines `"type": "module"` for Node.js ES module support
+- No npm dependencies - all code is vanilla JavaScript
+- Node.js required only for `simulate.js` (uses ES module imports)
 - No transpilation or bundling - edit files directly
 
 ## Security Considerations
